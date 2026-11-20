@@ -622,10 +622,10 @@
   <!-- 頂部資訊 -->
   <header>
     <div class="boarding-pass">
-      <div class="avatar-container">
-        <img id="headerAvatarSprite" class="avatar-img" src="" alt="Avatar" />
-        <div class="badge-rank" id="planeLevelTag">Lv.1</div>
-      </div>
+      <div class="avatar-container" onclick="openCharacterModal()" title="點擊更換陪同飛行員" style="cursor: pointer;">
+      <img id="headerAvatarSprite" class="avatar-img" src="" alt="Avatar" />
+      <div class="badge-rank" id="planeLevelTag">Lv.1</div>
+    </div>
       <div class="player-info">
         <h3 id="pilotHeaderName">請選擇陪同飛行員</h3>
         <p>抽象成就：<span id="headerBadgeCount" style="color:var(--gold); font-weight:bold;">0 / 10</span> ｜ 最高航速：<span id="headerMaxWpm" style="color:#72B2D6; font-weight:bold;">0 WPM</span></p>
@@ -1430,13 +1430,7 @@
         speed: [{ target: "Enjoy your meal!", zh: "🔥 魚香飯短句極速連打", icon: "⚡" }],
         perfect: [{ target: "Enjoy your meal!", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
       },
-      morocco: {
-        stage1: [{ target: "Hot tagine is ready!", zh: "摩洛哥塔吉鍋短句練習", icon: "🍲" }],
-        stage2: [{ target: "Smell the sweet spices!", zh: "陶土塔吉鍋慢火悶燉羊肉", icon: "🍲" }],
-        stage3: [{ target: "Mint tea is very good!", zh: "摩洛哥塔吉鍋燉肉出餐", icon: "🍲" }],
-        speed: [{ target: "Hot tagine is ready!", zh: "🔥 塔吉鍋短句極速連打", icon: "⚡" }],
-        perfect: [{ target: "Hot tagine is ready!", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
-      },
+   
       egypt: {
         stage1: [{ target: "Welcome to Egypt!", zh: "埃及庫沙利短句練習", icon: "🍲" }],
         stage2: [{ target: "Try the spicy sauce!", zh: "庫沙利鷹嘴豆飯短句", icon: "🍲" }],
@@ -1564,11 +1558,14 @@ let travelNotes = {}; // 儲存玩家在各國寫下的手札備註 { taiwan: "F
     }
 
     function resetMemoryState() {
-      userProgress = { taiwan: {} };
-      totalMilesKm = 0;
-      maxWpmRecord = 0;
-      travelNotes = {};
-      selectedCharId = null;
+  userProgress = { taiwan: {} };
+  totalMilesKm = 0;
+  maxWpmRecord = 0;
+  travelNotes = {};
+  selectedCharId = null;
+  document.getElementById('headerAvatarSprite').src = 'SAVELY.png';
+  document.getElementById('guideAvatarSprite').src = 'SAVELY.png';
+  document.getElementById('pilotHeaderName').innerText = `請選擇陪同飛行員 (${currentUsername || '未登入'})`;
       badgesData.forEach(b => { b.unlocked = false; });
       document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
       const confirmBtn = document.getElementById('confirmCharBtn');
@@ -1657,18 +1654,8 @@ let travelNotes = {}; // 儲存玩家在各國寫下的手札備註 { taiwan: "F
       if (!currentUsername) return;
 
       const storageKey = `typingGameData_${currentUsername}`;
-      let savedData = localStorage.getItem(storageKey);
-
-      // 自動救援：把舊版 'typingGameData' 的紀錄搬移到目前登入的帳號下
-      if (!savedData) {
-        const legacyData = localStorage.getItem('typingGameData');
-        if (legacyData) {
-          savedData = legacyData;
-          localStorage.setItem(storageKey, legacyData);
-        }
-      }
-
-      let hasLocalChar = false;
+     let savedData = localStorage.getItem(storageKey);
+    let hasLocalChar = false;
 
       if (savedData) {
         try {
@@ -1802,8 +1789,24 @@ let travelNotes = {}; // 儲存玩家在各國寫下的手札備註 { taiwan: "F
       }
     }
 
-    function initCharacterSelection() {
-      const grid = document.getElementById('charGrid');
+    function openCharacterModal() {
+    document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
+    const btn = document.getElementById('confirmCharBtn');
+    if (selectedCharId !== null && document.getElementById(`char-card-${selectedCharId}`)) {
+      document.getElementById(`char-card-${selectedCharId}`).classList.add('selected');
+      btn.disabled = false;
+      btn.style.opacity = '1';
+    } else {
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+    }
+    const statusEl = document.getElementById('quickLoginStatus');
+    if (statusEl) statusEl.innerText = '';
+    document.getElementById('charSelectModal').style.display = 'flex';
+  }
+
+ function initCharacterSelection() {
+        const grid = document.getElementById('charGrid');
       grid.innerHTML = '';
 
       charactersList.forEach((char, idx) => {
