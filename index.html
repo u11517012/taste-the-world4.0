@@ -777,11 +777,18 @@
 
   </div>
 
-  <!-- 1. 角色選擇 Modal -->
+ <!-- 1. 角色選擇 Modal -->
   <div class="modal-overlay" id="charSelectModal" style="display: flex;">
     <div class="character-modal-card">
       <h2 style="color:var(--passport-cover); font-size: 18px;">🧑‍✈️ 選擇您的 Lovely 陪同飛行員</h2>
       <p style="font-size:11px; color:#666; margin-top:2px;">挑選一位可愛的 Lovely 夥伴陪伴您環遊世界打字吧！</p>
+
+      <!-- ☁️ 新增：雲端帳號直接登入區 -->
+      <div style="background:#FFF8E7; border:1.5px dashed var(--gold); border-radius:10px; padding:8px 12px; margin:10px 0 6px 0; display:flex; align-items:center; justify-content:space-between; gap:8px;">
+        <input type="text" id="quickLoginInput" placeholder="☁️ 已有帳號？輸入名稱直接同步雲端進度" style="flex:1; padding:6px 10px; border:1.5px solid #CBD5E1; border-radius:8px; font-size:12px; outline:none;" onkeydown="if(event.key==='Enter') quickCloudLogin()" />
+        <button onclick="quickCloudLogin()" style="background:var(--green); color:#fff; border:none; padding:6px 12px; border-radius:8px; font-size:12px; font-weight:bold; cursor:pointer; white-space:nowrap;">☁️ 載入進度</button>
+      </div>
+      <div id="quickLoginStatus" style="font-size:11px; color:var(--navy); font-weight:bold; min-height:15px;"></div>
 
       <div class="char-grid" id="charGrid"></div>
 
@@ -1556,6 +1563,38 @@ let travelNotes = {}; // 儲存玩家在各國寫下的手札備註 { taiwan: "F
       }
     }
 
+    function resetMemoryState() {
+      userProgress = { taiwan: {} };
+      totalMilesKm = 0;
+      maxWpmRecord = 0;
+      travelNotes = {};
+      selectedCharId = null;
+      badgesData.forEach(b => { b.unlocked = false; });
+      document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
+      const confirmBtn = document.getElementById('confirmCharBtn');
+      if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.style.opacity = '0.5';
+      }
+    }
+
+    function quickCloudLogin() {
+      const inputEl = document.getElementById('quickLoginInput');
+      const statusEl = document.getElementById('quickLoginStatus');
+      const name = inputEl ? inputEl.value.trim() : '';
+      if (!name) {
+        alert("請先輸入您的玩家帳號名稱！");
+        return;
+      }
+
+      currentUsername = name;
+      localStorage.setItem('typingGameUsername', currentUsername);
+      if (statusEl) statusEl.innerText = '🔄 正在連線雲端搜尋存檔...';
+
+      resetMemoryState();
+      loadGame(true);
+    }
+
     function saveGame() {
       if (!currentUsername) {
         const inputName = prompt("請輸入您的玩家帳號/暱稱（用於雲端存檔與跨裝置同步）：");
@@ -1567,6 +1606,7 @@ let travelNotes = {}; // 儲存玩家在各國寫下的手札備註 { taiwan: "F
         }
       }
 
+      const storageKey = `typingGameData_${currentUsername}`;
       const gameState = {
         username: currentUsername,
         userProgress: userProgress,
@@ -1576,9 +1616,8 @@ let travelNotes = {}; // 儲存玩家在各國寫下的手札備註 { taiwan: "F
         maxWpmRecord: maxWpmRecord,
         travelNotes: travelNotes
       };
-      localStorage.setItem('typingGameData', JSON.stringify(gameState));
+      localStorage.setItem(storageKey, JSON.stringify(gameState));
 
-      // 同步寫入本地全玩家排行榜快取（支援同裝置多帳號切磋與即時排名）
       const allLocalPlayers = JSON.parse(localStorage.getItem('typingGameAllPlayers') || '{}');
       const clearedCount = worldData.filter(x => {
         const p = userProgress[x.id] || {};
@@ -1614,15 +1653,30 @@ let travelNotes = {}; // 儲存玩家在各國寫下的手札備註 { taiwan: "F
       }).catch(err => console.error("雲端儲存失敗:", err));
     }
 
-    function loadGame() {
-      const savedData = localStorage.getItem('typingGameData');
+    function loadGame(isFromQuickLogin = false) {
+      if (!currentUsername) return;
+
+      const storageKey = `typingGameData_${currentUsername}`;
+      let savedData = localStorage.getItem(storageKey);
+
+      // 自動救援：把舊版 'typingGameData' 的紀錄搬移到目前登入的帳號下
+      if (!savedData) {
+        const legacyData = localStorage.getItem('typingGameData');
+        if (legacyData) {
+          savedData = legacyData;
+          localStorage.setItem(storageKey, legacyData);
+        }
+      }
+
+      let hasLocalChar = false;
+
       if (savedData) {
         try {
           const gameState = JSON.parse(savedData);
           if (gameState.userProgress) userProgress = gameState.userProgress;
           if (typeof gameState.totalMilesKm === 'number') totalMilesKm = gameState.totalMilesKm;
           if (typeof gameState.maxWpmRecord === 'number') maxWpmRecord = gameState.maxWpmRecord;
-if (gameState.travelNotes) travelNotes = gameState.travelNotes;
+          if (gameState.travelNotes) travelNotes = gameState.travelNotes;
           if (gameState.badgesData) {
             gameState.badgesData.forEach(savedBadge => {
               const b = badgesData.find(item => item.id === savedBadge.id);
@@ -1631,13 +1685,13 @@ if (gameState.travelNotes) travelNotes = gameState.travelNotes;
           }
           if (gameState.selectedCharId !== null && gameState.selectedCharId !== undefined) {
             applyCharacter(gameState.selectedCharId);
+            hasLocalChar = true;
           }
         } catch (e) {
           console.error("本地讀取失敗:", e);
         }
       }
 
-      // 若舊存檔已有通關國家但里程為 0，自動補發基礎里程
       const clearedCountriesCount = worldData.filter(x => {
         const p = userProgress[x.id] || {};
         return p.stage1 && p.stage2 && p.stage3;
@@ -1646,33 +1700,63 @@ if (gameState.travelNotes) travelNotes = gameState.travelNotes;
         totalMilesKm = clearedCountriesCount * 1250;
       }
 
-      if (currentUsername) {
-        fetch(`${GAS_URL}?username=${encodeURIComponent(currentUsername)}`)
-          .then(res => res.json())
-          .then(resData => {
-            if (resData.status === 'success' && resData.data) {
-              const cloudData = resData.data;
-              userProgress = cloudData.userProgress || userProgress;
-              if (cloudData.totalMilesKm) totalMilesKm = Math.max(totalMilesKm, Number(cloudData.totalMilesKm) || 0);
-              if (cloudData.maxWpmRecord) maxWpmRecord = Math.max(maxWpmRecord, Number(cloudData.maxWpmRecord) || 0);
-              
-              if (cloudData.badgesData) {
-                cloudData.badgesData.forEach(savedBadge => {
-                  const b = badgesData.find(item => item.id === savedBadge.id);
-                  if (b) b.unlocked = savedBadge.unlocked;
-                });
-              }
+      fetch(`${GAS_URL}?username=${encodeURIComponent(currentUsername)}`)
+        .then(res => res.json())
+        .then(resData => {
+          const statusEl = document.getElementById('quickLoginStatus');
+          if (resData.status === 'success' && resData.data) {
+            const cloudData = resData.data;
+            userProgress = cloudData.userProgress || userProgress;
+            if (cloudData.totalMilesKm) totalMilesKm = Math.max(totalMilesKm, Number(cloudData.totalMilesKm) || 0);
+            if (cloudData.maxWpmRecord) maxWpmRecord = Math.max(maxWpmRecord, Number(cloudData.maxWpmRecord) || 0);
 
-              if (cloudData.selectedCharId !== undefined && cloudData.selectedCharId !== "") {
-                applyCharacter(cloudData.selectedCharId);
-              }
-              
-              renderCountryPins();
-              updateHeaderStats();
+            if (cloudData.badgesData) {
+              cloudData.badgesData.forEach(savedBadge => {
+                const b = badgesData.find(item => item.id === savedBadge.id);
+                if (b) b.unlocked = savedBadge.unlocked;
+              });
             }
-          })
-          .catch(err => console.log("雲端連線失敗，優先使用本地紀錄:", err));
-      }
+
+            const charToApply = (cloudData.selectedCharId !== undefined && cloudData.selectedCharId !== "")
+              ? Number(cloudData.selectedCharId)
+              : (selectedCharId !== null ? selectedCharId : 0);
+            applyCharacter(charToApply);
+
+            localStorage.setItem(storageKey, JSON.stringify({
+              username: currentUsername,
+              userProgress: userProgress,
+              badgesData: badgesData,
+              selectedCharId: selectedCharId,
+              totalMilesKm: totalMilesKm,
+              maxWpmRecord: maxWpmRecord,
+              travelNotes: travelNotes
+            }));
+
+            if (statusEl) statusEl.innerText = '';
+            renderCountryPins();
+            updateHeaderStats();
+            updatePilotGuide(`歡迎回來，${currentUsername}！已成功從雲端同步您的環球航線進度！`);
+          } else {
+            if (!hasLocalChar) {
+              document.getElementById('charSelectModal').style.display = 'flex';
+              if (statusEl) {
+                statusEl.innerText = isFromQuickLogin
+                  ? `✨ 雲端尚無【${currentUsername}】的紀錄，請下方挑選角色建立新檔案！`
+                  : '';
+              }
+            }
+            renderCountryPins();
+            updateHeaderStats();
+          }
+        })
+        .catch(err => {
+          console.log("雲端連線失敗，優先使用本地紀錄:", err);
+          const statusEl = document.getElementById('quickLoginStatus');
+          if (!hasLocalChar) {
+            document.getElementById('charSelectModal').style.display = 'flex';
+            if (statusEl) statusEl.innerText = '⚠️ 無法連線雲端，請直接挑選夥伴開始新旅程！';
+          }
+        });
     }
 
     function applyCharacter(charId) {
@@ -1688,17 +1772,30 @@ if (gameState.travelNotes) travelNotes = gameState.travelNotes;
     }
 
     function changeUser() {
-      const name = prompt("請輸入要切換的玩家帳號：", currentUsername);
+      const name = prompt("請輸入要切換的玩家帳號（輸入現有帳號可同步雲端進度）：", currentUsername);
       if (name && name.trim() !== "") {
         currentUsername = name.trim();
         localStorage.setItem('typingGameUsername', currentUsername);
-        loadGame();
-        alert(`已切換帳號為：${currentUsername}`);
+
+        resetMemoryState();
+        renderCountryPins();
+        updateHeaderStats();
+
+        const hasLocal = Boolean(localStorage.getItem(`typingGameData_${currentUsername}`));
+        if (!hasLocal) {
+          document.getElementById('charSelectModal').style.display = 'flex';
+          const statusEl = document.getElementById('quickLoginStatus');
+          if (statusEl) statusEl.innerText = `🔄 正在為【${currentUsername}】檢查雲端存檔...`;
+        }
+        loadGame(true);
       }
     }
 
     function resetGame() {
       if (confirm("⚠️ 確定要刪除所有通關紀錄、里程與徽章嗎？此動作無法復原。")) {
+        if (currentUsername) {
+          localStorage.removeItem(`typingGameData_${currentUsername}`);
+        }
         localStorage.removeItem('typingGameData');
         localStorage.removeItem('typingGameUsername');
         location.reload();
@@ -2982,9 +3079,10 @@ function closeBadgeUnlockModal() {
 
     function saveCountryNote(countryId, textVal) {
       travelNotes[countryId] = textVal;
-      const savedData = JSON.parse(localStorage.getItem('typingGameData') || '{}');
+      const storageKey = currentUsername ? `typingGameData_${currentUsername}` : 'typingGameData';
+      const savedData = JSON.parse(localStorage.getItem(storageKey) || '{}');
       savedData.travelNotes = travelNotes;
-      localStorage.setItem('typingGameData', JSON.stringify(savedData));
+      localStorage.setItem(storageKey, JSON.stringify(savedData));
     }
 
     function renderNotebookPages() {
