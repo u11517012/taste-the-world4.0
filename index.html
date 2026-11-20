@@ -1,0 +1,3216 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Taste the World: 環球美食盲打冒險</title>
+  
+  <!-- D3.js & TopoJSON -->
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://unpkg.com/topojson-client@3"></script>
+
+  <style>
+    :root {
+      --ocean-blue: #72B2D6;
+      --land-brown: #B87322;
+      --navy: #1D2D44;
+      --gold: #F2A93B;
+      --red: #E65F5C;
+      --green: #2A9D8F;
+      --passport-cover: #4A2810;
+      --passport-page: #FAF3E0;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    
+    body {
+      background-color: var(--navy);
+      color: var(--navy);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    header {
+      background: #111B27;
+      color: #fff;
+      padding: 6px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+      z-index: 10;
+      height: 52px;
+    }
+
+    .boarding-pass { display: flex; align-items: center; gap: 10px; }
+    .avatar-container {
+      position: relative; width: 38px; height: 38px; background: #fff;
+      border-radius: 50%; border: 2px solid var(--gold); display: flex;
+      justify-content: center; align-items: center; overflow: hidden;
+    }
+    .avatar-img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+    
+    .badge-rank {
+      position: absolute; bottom: -2px; right: -2px; background: var(--red);
+      color: white; font-size: 9px; padding: 1px 4px; border-radius: 8px; font-weight: bold; z-index: 2;
+    }
+    .player-info h3 { font-size: 13px; color: var(--gold); }
+    .player-info p { font-size: 10px; opacity: 0.85; color: #ccc; }
+    .stats-bar { display: flex; gap: 8px; align-items: center; }
+    .stat-item { background: rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 16px; font-size: 11px; color: #fff; transition: transform 0.2s, background 0.2s; }
+    .stat-item.highlight-bump { transform: scale(1.12); background: rgba(242, 169, 59, 0.35); }
+
+    .user-btn {
+      background: var(--green); color: #fff; border: none; padding: 4px 10px;
+      border-radius: 16px; font-size: 11px; cursor: pointer; font-weight: bold; transition: background 0.2s;
+    }
+    .user-btn:hover { background: #218377; }
+
+    .reset-btn {
+      background: var(--red); color: #fff; border: none; padding: 4px 10px;
+      border-radius: 16px; font-size: 11px; cursor: pointer; font-weight: bold; transition: background 0.2s;
+    }
+    .reset-btn:hover { background: #c0392b; }
+
+    .continent-bar {
+      background: #1D2D44; padding: 5px 10px; display: flex; justify-content: center;
+      gap: 6px; z-index: 9; flex-wrap: wrap;
+    }
+
+    .continent-btn {
+      background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2);
+      padding: 4px 10px; border-radius: 16px; font-size: 11px; cursor: pointer; transition: all 0.3s;
+    }
+
+    .continent-btn:hover, .continent-btn.active {
+      background: var(--gold); color: var(--navy); font-weight: bold; transform: translateY(-1px);
+    }
+.americas-subbar {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      z-index: 35;
+      background: rgba(17, 27, 39, 0.92);
+      border: 2px solid var(--gold);
+      border-radius: 16px;
+      padding: 10px 12px;
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+      align-items: stretch;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+      backdrop-filter: blur(4px);
+    }    .americas-subbtn {
+      background: rgba(255,255,255,0.12);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.25);
+      padding: 5px 14px;
+      border-radius: 16px;
+      font-size: 12px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.25s;
+    }
+    .americas-subbtn:hover {
+      background: rgba(242, 169, 59, 0.35);
+    }
+    .americas-subbtn.active {
+      background: var(--gold);
+      color: var(--navy);
+      border-color: var(--gold);
+    }
+
+    .view-container { position: relative; flex: 1; overflow: hidden; }
+    .view { width: 100%; height: 100%; position: absolute; top:0; left:0; display: none; }
+    .view.active { display: block; }
+
+    .map-wrapper { position: relative; width: 100%; height: 100%; background: var(--ocean-blue); overflow: hidden; }
+    
+    #worldMapSvg, #mapGroup, #flightRoutesGroup, #worldMapSvg path { 
+      width: 100%; 
+      height: 100%; 
+      pointer-events: none !important; 
+    }
+
+    .country-shape { fill: var(--land-brown); stroke: #FFFFFF; stroke-width: 0.5; transition: fill 0.2s; }
+
+    .flight-line-hub {
+      fill: none;
+      stroke: #4A2810;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-dasharray: 6, 4;
+      opacity: 0.85;
+      animation: routeDash 30s linear infinite;
+    }
+
+    .flight-line-cross {
+      fill: none;
+      stroke: #E65F5C;
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-dasharray: 8, 5;
+      opacity: 0.95;
+      animation: routeDash 12s linear infinite;
+    }
+
+    @keyframes routeDash { to { stroke-dashoffset: -100; } }
+
+    .flight-line-active { fill: none; stroke: #4A2810; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; opacity: 0.9; }
+    .flight-line-locked { fill: none; stroke: #6E401F; stroke-width: 1.5; stroke-linecap: round; opacity: 0.35; }
+
+    #pinLayer { 
+      position: absolute; 
+      top: 0; 
+      left: 0; 
+      width: 100%; 
+      height: 100%; 
+      pointer-events: none; 
+      z-index: 20; 
+    }
+
+    .node-pin {
+      position: absolute; 
+      transform: translate(-50%, -50%); 
+      cursor: pointer !important; 
+      pointer-events: auto !important;
+      display: flex; 
+      flex-direction: column; 
+      align-items: center; 
+      transition: box-shadow 0.2s ease, opacity 0.2s ease;
+      z-index: 25;
+    }
+    
+    .pin-icon {
+      width: 36px; height: 36px; border-radius: 50%; background: #fff; border: 3px solid var(--navy);
+      display: flex; justify-content: center; align-items: center; font-size: 16px; box-shadow: 0 4px 10px rgba(0,0,0,0.35);
+      position: relative; overflow: hidden; pointer-events: none;
+    }
+
+    .flag-img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; pointer-events: none; }
+
+    .plane-badge {
+      position: absolute; top: -22px; font-size: 20px; pointer-events: none;
+      animation: floatPlane 1.5s ease-in-out infinite alternate; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+    }
+
+    @keyframes floatPlane {
+      from { transform: translateY(0px) rotate(10deg); }
+      to { transform: translateY(-6px) rotate(10deg); }
+    }
+
+    .flying-plane-anim {
+      position: absolute;
+      font-size: 28px;
+      z-index: 45;
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      filter: drop-shadow(0 4px 8px rgba(0,0,0,0.5));
+    }
+
+    .node-pin.unlocked .pin-icon { border-color: var(--green); }
+    .node-pin.perfect-cleared .pin-icon { border-color: var(--gold); box-shadow: 0 0 12px var(--gold); }
+    .node-pin.active-target .pin-icon { border-color: var(--gold); animation: pulse 1.5s infinite; }
+    .node-pin.locked { cursor: not-allowed !important; opacity: 0.5; filter: grayscale(1); }
+    .node-pin.locked .pin-icon { border-color: #666; }
+    
+    .lock-overlay {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.4); display: flex; justify-content: center; align-items: center; color: #fff; font-size: 12px;
+      pointer-events: none;
+    }
+
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(242, 169, 59, 0.8); }
+      70% { box-shadow: 0 0 0 12px rgba(242, 169, 59, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(242, 169, 59, 0); }
+    }
+
+    .pin-label { 
+      background: var(--navy); color: white; font-size: 10px; padding: 2px 6px; 
+      border-radius: 8px; margin-top: 3px; white-space: nowrap; font-weight: bold; 
+      pointer-events: none;
+    }
+
+    .pilot-guide-box {
+      position: absolute; bottom: 15px; left: 15px; z-index: 30;
+      display: flex; align-items: flex-end; gap: 10px; pointer-events: none;
+    }
+    .pilot-avatar-wrap {
+      width: 60px; height: 60px; background: #FFF; border: 3px solid var(--gold);
+      border-radius: 50%; box-shadow: 0 4px 12px rgba(0,0,0,0.3); overflow: hidden; flex-shrink: 0;
+      transition: transform 0.2s ease;
+    }
+    .pilot-avatar-wrap.cheer { animation: cheerBounce 0.4s ease infinite alternate; }
+    .pilot-avatar-wrap.panic { animation: panicShake 0.3s ease infinite; }
+
+    @keyframes cheerBounce { from { transform: translateY(0); } to { transform: translateY(-8px) scale(1.05); } }
+    @keyframes panicShake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+
+    .pilot-dialog {
+      background: #FFF; padding: 8px 12px; border-radius: 12px; border-bottom-left-radius: 2px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2); max-width: 280px; border: 2px solid var(--navy);
+      position: relative; animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .pilot-dialog h4 { font-size: 11px; color: var(--gold); margin-bottom: 2px; }
+    .pilot-dialog p { font-size: 12px; color: var(--navy); font-weight: bold; line-height: 1.3; }
+
+    @keyframes popIn { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+    .bottom-triggers { position: absolute; bottom: 12px; right: 12px; display: flex; gap: 8px; z-index: 30; }
+    .passport-trigger-btn, .book-trigger-btn {
+      background: var(--passport-cover); color: #F3E5AB; border-radius: 10px; padding: 8px 12px;
+      border: 2px solid #D4AF37; cursor: pointer; font-weight: bold; font-size: 12px; display: flex; align-items: center; gap: 6px;
+    }
+    .book-trigger-btn { background: #2C1A0E; border-color: var(--gold); }
+
+    .game-wrapper {
+      background: var(--passport-page); width: 100%; height: 100%; padding: 8px 15px;
+      display: flex; flex-direction: column; align-items: center; justify-content: space-around;
+      overflow: hidden;
+    }
+    .game-header {
+      width: 100%; max-width: 760px; display: flex; justify-content: space-between; align-items: center;
+      background: #fff; padding: 6px 14px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+    }
+
+    .event-banner {
+      width: 100%; max-width: 760px; background: linear-gradient(90deg, #E65F5C, #F2A93B);
+      color: #fff; font-size: 12px; font-weight: bold; padding: 5px 12px; border-radius: 8px;
+      text-align: center; display: none; box-shadow: 0 3px 8px rgba(230,95,92,0.3);
+      animation: pulseEvent 1.2s infinite alternate;
+    }
+    @keyframes pulseEvent { from { transform: scale(0.99); } to { transform: scale(1.01); } }
+
+    .timer-bar-container {
+      width: 100%; max-width: 760px; height: 8px; background: #e0e0e0; border-radius: 4px;
+      overflow: hidden; display: none; border: 1px solid #ccc;
+    }
+    .timer-bar-fill {
+      height: 100%; width: 100%; background: linear-gradient(90deg, #2A9D8F, #F2A93B, #E65F5C);
+      transition: width 0.1s linear;
+    }
+
+    .target-card {
+      background: #fff; border-radius: 12px; padding: 8px 16px; text-align: center;
+      width: 100%; max-width: 760px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); border: 2px solid #E2E8F0;
+      position: relative; transition: background 0.3s, border-color 0.3s;
+    }
+    .target-card.smoke-mode {
+      background: #1E293B; border-color: #E65F5C; color: #F8FAFC;
+    }
+    .target-card.smoke-mode .target-text-box {
+      background: #0F172A; color: #E2E8F0; border-color: #475569;
+    }
+    .food-display { font-size: 34px; transition: transform 0.1s ease; display: inline-block; }
+    .food-display.bounce { transform: scale(1.3) rotate(8deg); }
+
+    .combo-float {
+      position: absolute; right: 20px; top: 10px; font-size: 16px; font-weight: 900;
+      color: var(--red); animation: floatUp 0.6s ease-out forwards; pointer-events: none;
+    }
+    @keyframes floatUp { 0% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-25px); } }
+
+    .target-text-box {
+      font-size: 20px; font-family: monospace; letter-spacing: 2px; color: #334155; margin: 6px 0;
+      background: #F8FAFC; border: 2px solid #CBD5E1; padding: 6px; border-radius: 8px; text-align: center;
+      line-height: 1.3; word-break: break-word; min-height: 42px;
+    }
+    .correct-char { color: var(--green); text-decoration: underline; font-weight: bold; }
+    .current-char { background: var(--gold); color: #fff; padding: 0 3px; border-radius: 3px; font-weight: bold; animation: keyBlink 0.8s infinite alternate; }
+    @keyframes keyBlink { from { opacity: 0.7; } to { opacity: 1; } }
+    .frozen-char {
+      background: #38BDF8;
+      color: #0F172A;
+      padding: 0 3px;
+      border-radius: 4px;
+      font-weight: 900;
+      box-shadow: 0 0 8px #7DD3FC;
+      border: 1px solid #BAE6FD;
+    }
+
+    .error-flash { animation: shake 0.2s ease-in-out; border-color: var(--red) !important; }
+    @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+
+    .input-box {
+      width: 100%; max-width: 450px; padding: 6px 12px; font-size: 15px; text-align: center;
+      border: 2px solid var(--navy); border-radius: 6px; outline: none; font-family: monospace;
+    }
+
+    .keyboard-guide-wrap {
+      background: #111B27; border-radius: 10px; padding: 6px 10px; width: 100%; max-width: 720px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3); border: 2px solid var(--gold); display: flex;
+      flex-direction: column; align-items: center; gap: 3px;
+    }
+    .finger-hint-banner {
+      color: #FFF; font-size: 11px; font-weight: bold; background: rgba(242, 169, 59, 0.2);
+      padding: 2px 10px; border-radius: 10px; border: 1px dashed var(--gold);
+    }
+    .kb-row { display: flex; gap: 3px; justify-content: center; width: 100%; }
+    .kb-key {
+      background: #2D3748; color: #E2E8F0; border-radius: 4px; height: 26px; min-width: 25px;
+      display: flex; justify-content: center; align-items: center; font-size: 10px; font-weight: bold;
+      border-bottom: 2px solid #1A202C; transition: all 0.1s ease; position: relative; user-select: none;
+    }
+    .kb-key.bump::after {
+      content: ''; position: absolute; bottom: 2px; width: 5px; height: 2px; background: var(--gold); border-radius: 1px;
+    }
+    .finger-lp { border-top: 2px solid #E65F5C; }
+    .finger-lr { border-top: 2px solid #F2A93B; }
+    .finger-lm { border-top: 2px solid #2A9D8F; }
+    .finger-li { border-top: 2px solid #72B2D6; }
+    .finger-ri { border-top: 2px solid #9B59B6; }
+    .finger-rm { border-top: 2px solid #2A9D8F; }
+    .finger-rr { border-top: 2px solid #F2A93B; }
+    .finger-rp { border-top: 2px solid #E65F5C; }
+    .finger-thumb { border-top: 2px solid #E2E8F0; }
+
+    .kb-key.active-next {
+      background: var(--gold) !important; color: var(--navy) !important;
+      transform: translateY(1px); border-bottom-width: 1px;
+      box-shadow: 0 0 10px var(--gold); font-size: 13px; font-weight: 900;
+    }
+
+    .modal-overlay {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.75); display: none; justify-content: center; align-items: center; z-index: 50;
+      backdrop-filter: blur(4px);
+    }
+    .passport-book, .achievement-book {
+      background: var(--passport-page); border: 6px solid var(--passport-cover); border-radius: 14px;
+      width: 640px; height: 460px; padding: 20px; position: relative; display: flex; flex-direction: column;
+      justify-content: space-between; border-left: 10px solid #361C0A;
+    }
+    .passport-header, .book-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #D4AF37; padding-bottom: 6px; }
+    .passport-grid, .badges-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 10px 0; height: 340px; overflow-y: auto; padding: 4px; }
+
+    .stamp-slot {
+      background: #FFFDF7; border: 2px dashed #C8B29B; border-radius: 12px; padding: 10px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      cursor: pointer; transition: all 0.25s ease; position: relative;
+    }
+    .stamp-slot.gold-frame {
+      background: linear-gradient(135deg, #FFFDF0 0%, #FFF3C4 100%);
+      border: 2px solid #D4AF37;
+      box-shadow: 0 3px 10px rgba(212, 175, 55, 0.35);
+    }
+    .stamp-slot:hover { transform: translateY(-2px); box-shadow: 0 5px 12px rgba(0,0,0,0.12); border-color: var(--gold); }
+
+    .badge-circle {
+      width: 70px; height: 70px; border-radius: 50%;
+      display: flex; justify-content: center; align-items: center;
+      position: relative; transition: all 0.3s ease; box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+      overflow: hidden;
+    }
+
+    .badge-circle.unlocked {
+      background: radial-gradient(circle, #FFFDF0 30%, #FFE082 100%);
+      border: 3px double #D4AF37; outline: 2px solid #B38700; outline-offset: -4px; font-size: 32px;
+    }
+    
+    .badge-circle.locked { background: #E0E0E0; border: 2px dashed #999; color: #777; font-size: 22px; filter: grayscale(0.85); }
+    .passport-flag-img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+    .passport-lock-badge {
+      position: absolute; bottom: 2px; right: 2px; background: rgba(0,0,0,0.65);
+      color: #fff; font-size: 11px; border-radius: 50%; width: 22px; height: 22px;
+      display: flex; justify-content: center; align-items: center;
+    }
+    .passport-crown-badge {
+      position: absolute; top: 4px; right: 6px; font-size: 14px;
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
+    }
+    .badge-click-hint { font-size: 9px; color: var(--gold); font-weight: bold; margin-top: 3px; }
+
+    .character-modal-card {
+      background: #FFFDF7; border: 4px solid var(--gold); border-radius: 16px;
+      padding: 16px; width: 500px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    .char-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 0; }
+    .char-card {
+      background: #fff; border: 2px solid #E2E8F0; border-radius: 10px; padding: 8px;
+      cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; align-items: center;
+    }
+    .char-card:hover { border-color: var(--gold); transform: translateY(-2px); }
+    .char-card.selected { border-color: var(--green); background: #F0FDF4; border-width: 3px; }
+    
+    .char-card-img { width: 55px; height: 55px; border-radius: 50%; object-fit: contain; border: 1px solid #ddd; margin-bottom: 4px; background: #f9f9f9; }
+
+    .badge-card { background: #FFF; border: 2px solid #D4AF37; border-radius: 10px; padding: 10px; text-align: center; position: relative; box-shadow: 0 3px 8px rgba(0,0,0,0.08); }
+    .badge-card.locked { background: #EAE3DC; border: 2px dashed #C8B29B; box-shadow: none; }
+    .badge-card.locked .badge-icon { filter: grayscale(1) opacity(0.3); }
+    .badge-card.locked::after { content: '🔒'; position: absolute; top: 6px; right: 6px; font-size: 10px; }
+
+    .badge-icon { font-size: 32px; margin-bottom: 4px; }
+    .close-modal { position: absolute; top: 10px; right: 14px; font-size: 20px; cursor: pointer; color: #888; }
+
+    .btn-card {
+      background: #FFF; border: 2px solid #E2D4C9; border-radius: 8px; padding: 8px; text-align: left;
+      cursor: pointer; transition: all 0.2s; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;
+    }
+    .btn-card:hover:not(.disabled) { border-color: var(--gold); transform: translateY(-2px); }
+    .btn-card.cleared { border-color: var(--green); background: #F0FDF4; }
+    .btn-card.disabled { background: #F1F5F9; border-color: #CBD5E1; opacity: 0.6; cursor: not-allowed; }
+
+    .clear-tag { font-size: 10px; font-weight: bold; padding: 2px 5px; border-radius: 5px; }
+    .clear-tag.done { background: #DCFCE7; color: var(--green); }
+    .clear-tag.none { background: #E2E8F0; color: #64748B; }
+    .clear-tag.locked { background: #CBD5E1; color: #94A3B8; }
+
+    .badge-unlock-card {
+      background: linear-gradient(135deg, #FFFDF7 0%, #FFF3D6 100%);
+      border: 4px solid var(--gold); border-radius: 20px; padding: 20px;
+      width: 380px; text-align: center; box-shadow: 0 15px 35px rgba(0,0,0,0.5);
+      position: relative; overflow: hidden; animation: badgePopUp 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    @keyframes badgePopUp { 0% { transform: scale(0.3) rotate(-10deg); opacity: 0; } 70% { transform: scale(1.1) rotate(3deg); opacity: 1; } 100% { transform: scale(1) rotate(0deg); } }
+    
+    .confetti-particle {
+      position: absolute; width: 8px; height: 8px; border-radius: 2px;
+      animation: confettiFall 2.5s ease-out infinite; pointer-events: none;
+    }
+    @keyframes confettiFall { 0% { transform: translateY(-20px) rotate(0deg); opacity: 1; } 100% { transform: translateY(300px) rotate(720deg); opacity: 0; } }
+
+    .passport-stamp-modal-card {
+      background: var(--passport-page); border: 8px solid var(--passport-cover);
+      border-radius: 20px; padding: 25px; width: 420px; text-align: center;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.6); position: relative; overflow: hidden;
+    }
+    .stamp-container-box {
+      width: 140px; height: 140px; margin: 15px auto; position: relative;
+      display: flex; justify-content: center; align-items: center;
+    }
+    .passport-stamp-graphic {
+      width: 130px; height: 130px; border-radius: 50%; border: 4px double #C0392B;
+      color: #C0392B; display: flex; flex-direction: column; justify-content: center;
+      align-items: center; background: rgba(230, 95, 92, 0.08); font-weight: bold;
+      box-shadow: inset 0 0 10px rgba(192, 57, 43, 0.2); transform: scale(3) rotate(-35deg);
+      opacity: 0; pointer-events: none;
+    }
+    .passport-stamp-graphic.stamped {
+      animation: stampIn 0.5s cubic-bezier(0.6, -0.28, 0.735, 0.045) forwards;
+    }
+    @keyframes stampIn {
+      0% { transform: scale(3) rotate(-35deg); opacity: 0; }
+      80% { transform: scale(0.95) rotate(-5deg); opacity: 1; }
+      100% { transform: scale(1) rotate(-8deg); opacity: 0.95; }
+    }
+/* ================= 📓 旅行練習筆記本 & 🏆 排行榜樣式 ================= */
+    .notebook-trigger-btn {
+      background: #2B4C7E; color: #FFF8E7; border-radius: 10px; padding: 8px 12px;
+      border: 2px solid #93C5FD; cursor: pointer; font-weight: bold; font-size: 12px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .leaderboard-trigger-btn {
+      background: #7C2D12; color: #FDE68A; border-radius: 10px; padding: 8px 12px;
+      border: 2px solid var(--gold); cursor: pointer; font-weight: bold; font-size: 12px;
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    /* 線圈橫線筆記本外觀 */
+    .travel-notebook-book {
+      background: #FFFDF7;
+      background-image: repeating-linear-gradient(transparent, transparent 27px, #DCE6F2 28px);
+      border: 6px solid #3E2723;
+      border-left: 22px solid #5D4037;
+      border-radius: 14px;
+      width: 680px;
+      max-width: 95vw;
+      height: 500px;
+      padding: 18px 22px 18px 34px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 18px 45px rgba(0,0,0,0.65);
+    }
+    /* 筆記本左側紅色垂直裝訂線 */
+    .travel-notebook-book::before {
+      content: '';
+      position: absolute;
+      top: 0; bottom: 0; left: 16px;
+      width: 2px;
+      background: rgba(230, 95, 92, 0.55);
+      pointer-events: none;
+    }
+    .notebook-tabs {
+      display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0;
+    }
+    .nb-tab {
+      background: #EFEBE9; border: 1px solid #BCAAA4; color: #4E342E;
+      padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; cursor: pointer;
+    }
+    .nb-tab.active {
+      background: #5D4037; color: #FFF8E7; border-color: #5D4037;
+    }
+    .notebook-pages {
+      flex: 1; overflow-y: auto; padding-right: 6px; display: flex; flex-direction: column; gap: 12px;
+    }
+    .nb-entry-card {
+      background: rgba(255, 255, 255, 0.92);
+      border: 1.5px solid #D7CCC8;
+      border-left: 5px solid var(--green);
+      border-radius: 8px;
+      padding: 10px 12px;
+      box-shadow: 2px 3px 6px rgba(0,0,0,0.06);
+    }
+    .nb-entry-card.unvisited {
+      border-left-color: #BDBDBD;
+      opacity: 0.72;
+    }
+    .nb-prompt-row {
+      background: #F8FAFC; border: 1px dashed #CBD5E1; border-radius: 6px;
+      padding: 5px 8px; margin-top: 5px; font-size: 11px;
+    }
+    .nb-prompt-code {
+      font-family: monospace; font-weight: bold; color: #1E293B; font-size: 12px;
+      background: #FEF3C7; padding: 1px 5px; border-radius: 4px; display: inline-block; margin-top: 2px;
+    }
+    .nb-memo-input {
+      width: 100%; margin-top: 6px; border: none; border-bottom: 1.5px dashed #A1887F;
+      background: transparent; font-size: 11px; color: #4E342E; padding: 3px 2px; outline: none;
+    }
+    .nb-memo-input:focus { border-bottom-color: var(--gold); background: rgba(254, 243, 199, 0.35); }
+
+    /* 排行榜視窗 */
+    .leaderboard-book {
+      background: linear-gradient(180deg, #1E293B 0%, #0F172A 100%);
+      border: 4px solid var(--gold);
+      border-radius: 16px;
+      width: 580px;
+      max-width: 95vw;
+      height: 480px;
+      padding: 18px 20px;
+      color: #F8FAFC;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.7);
+    }
+    .lb-switch-bar {
+      display: flex; gap: 8px; margin: 10px 0;
+    }
+    .lb-switch-btn {
+      flex: 1; padding: 7px 10px; border-radius: 10px; border: 1.5px solid #475569;
+      background: rgba(255,255,255,0.06); color: #CBD5E1; font-weight: bold; font-size: 12px; cursor: pointer;
+    }
+    .lb-switch-btn.active {
+      background: var(--gold); color: var(--navy); border-color: var(--gold);
+    }
+    .lb-list {
+      flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px;
+    }
+    .lb-row {
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px; padding: 8px 12px; font-size: 12px;
+    }
+    .lb-row.is-me {
+      background: rgba(242, 169, 59, 0.22); border: 1.5px solid var(--gold);
+    }
+    .lb-rank-badge {
+      width: 28px; height: 28px; border-radius: 50%; display: flex; justify-content: center; align-items: center;
+      font-weight: 900; font-size: 13px; background: #334155; color: #fff; flex-shrink: 0;
+    }
+    .lb-rank-1 { background: #F59E0B; color: #1E293B; }
+    .lb-rank-2 { background: #94A3B8; color: #1E293B; }
+    .lb-rank-3 { background: #B45309; color: #FFF; }
+  </style>
+</head>
+<body>
+
+  <!-- 頂部資訊 -->
+  <header>
+    <div class="boarding-pass">
+      <div class="avatar-container">
+        <img id="headerAvatarSprite" class="avatar-img" src="" alt="Avatar" />
+        <div class="badge-rank" id="planeLevelTag">Lv.1</div>
+      </div>
+      <div class="player-info">
+        <h3 id="pilotHeaderName">請選擇陪同飛行員</h3>
+        <p>抽象成就：<span id="headerBadgeCount" style="color:var(--gold); font-weight:bold;">0 / 10</span> ｜ 最高航速：<span id="headerMaxWpm" style="color:#72B2D6; font-weight:bold;">0 WPM</span></p>
+      </div>
+    </div>
+    <div class="stats-bar">
+      <div class="stat-item" id="milesStatBox">✈ 飛行里程: <b id="totalMiles">0 km</b></div>
+      <div class="stat-item">⭐ 副本星數: <b id="bonusStarCount">0</b></div>
+      <div class="stat-item">🛂 已開航國家: <b id="stampCount">0 / 50</b></div>
+      <button class="user-btn" onclick="changeUser()">👤 切換帳號</button>
+      <button class="reset-btn" onclick="resetGame()">🗑️ 重置進度</button>
+    </div>
+  </header>
+
+  <!-- 大洲導航列 -->
+  <div class="continent-bar">
+    <button class="continent-btn active" id="cbtn-world" onclick="focusContinent('world')">🌐 全球俯瞰視圖</button>
+    <button class="continent-btn" id="cbtn-asia" onclick="focusContinent('asia')">🌏 亞洲 (10 階段指法晉級)</button>
+    <button class="continent-btn" id="cbtn-europe" onclick="focusContinent('europe')">🌍 歐洲 (全鍵盤隨機進階)</button>
+    <button class="continent-btn" id="cbtn-americas" onclick="focusContinent('americas')">🌎 美洲 (北美基礎單字 ➔ 南美長單字)</button>
+    <button class="continent-btn" id="cbtn-africa" onclick="focusContinent('africa')">🌍 非洲 (實用短句)</button>
+    <button class="continent-btn" id="cbtn-oceania" onclick="focusContinent('oceania')">🌏 大洋洲 (經典長句)</button>
+  </div>
+
+  <div class="view-container">
+    
+    <!-- 地圖視圖 -->
+    <div class="view active" id="mapView">
+      <div class="map-wrapper" id="mapContainer">
+        <svg id="worldMapSvg">
+          <g id="mapGroup"></g>
+          <g id="flightRoutesGroup"></g>
+        </svg>
+        <div id="pinLayer"></div>
+
+        <!-- 美洲區域分區選單（美洲維持單一大洲，進入後可切換北美洲 / 南美洲關卡視角） -->
+        <div class="americas-subbar" id="americasSubBar">
+          <span style="color:var(--gold); font-size:11px; font-weight:bold; padding-left:4px;">🌎 美洲航線：</span>
+          <button class="americas-subbtn active" id="subbtn-north" onclick="switchAmericasRegion('north')">🍁 北美洲 (8國 · 基礎單字)</button>
+          <button class="americas-subbtn" id="subbtn-south" onclick="switchAmericasRegion('south')">🦙 南美洲 (12國 · 進階長單字)</button>
+        </div>
+        <div class="pilot-guide-box">
+          <div class="pilot-avatar-wrap" id="pilotAvatarWrap">
+            <img id="guideAvatarSprite" class="avatar-img" src="" alt="Guide Avatar" />
+          </div>
+          <div class="pilot-dialog">
+            <h4 id="guidePilotTitle">陪同飛行員</h4>
+            <p id="guideDialogText">歡迎登機！請點擊上方【大洲導航】或地圖進入各大洲，體驗 50 國美食指法晉級之旅！</p>
+          </div>
+        </div>
+
+        <div class="bottom-triggers">
+          <div class="notebook-trigger-btn" onclick="openNotebookModal()">📓 旅行練習筆記本</div>
+          <div class="passport-trigger-btn" onclick="openPassportModal()">📘 Passport 護照紀錄</div>
+          <div class="leaderboard-trigger-btn" onclick="openLeaderboardModal()">👑 飛行員排行榜</div>
+          <div class="book-trigger-btn" onclick="openBookModal()">🏆 抽象成就徽章</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 打字戰鬥視圖 -->
+    <div class="view" id="gameView">
+      <div class="game-wrapper">
+        <div class="game-header">
+          <button onclick="switchView('mapView')" style="background:none; border:none; cursor:pointer; font-weight:bold; color:var(--navy);">← 放棄返回</button>
+          <div style="display:flex; gap:12px; font-size:12px; font-weight:bold;">
+            <div>🔥 連擊: <span id="comboText" style="color:var(--gold);">0</span></div>
+            <div>⏱️ 時間: <span id="timerText" style="color:var(--red);">0.0</span>s</div>
+            <div>⚠ 錯字: <span id="errorText" style="color:var(--red);">0</span></div>
+          </div>
+        </div>
+
+        <div class="event-banner" id="eventBanner">🧊 突發事件【食材結凍啦】：藍色冰塊字元需要「連按 2 下」敲碎冰塊，通關拿雙倍里程！</div>
+
+        <div class="timer-bar-container" id="timerBarContainer">
+          <div class="timer-bar-fill" id="timerBarFill"></div>
+        </div>
+
+        <div class="target-card" id="targetCardEl">
+          <div class="food-display" id="foodEmoji">🍜</div>
+          <div style="font-size: 12px; color: var(--gold); font-weight: bold;" id="stageTitle">STAGE 1</div>
+          
+          <div class="target-text-box" id="targetDisplay">fff jjj fjfj</div>
+          <p id="translation" style="font-size: 12px; color: #666; margin-bottom: 4px;">「F=加珍珠 J=倒奶茶 搖晃雪克杯！」</p>
+
+          <input type="text" class="input-box" id="typingInput" placeholder="請直接看螢幕打字，不看鍵盤！" oninput="handleTyping()" autofocus autocomplete="off">
+        </div>
+
+        <!-- 10 指盲打互動虛擬鍵盤 -->
+        <div class="keyboard-guide-wrap" id="virtualKeyboard">
+          <div class="finger-hint-banner" id="fingerGuideText">👉 請準備：將雙手食指放在 F 與 J 鍵上</div>
+          <div class="kb-row">
+            <div class="kb-key finger-lp" id="key-1">1</div>
+            <div class="kb-key finger-lp" id="key-2">2</div>
+            <div class="kb-key finger-lr" id="key-3">3</div>
+            <div class="kb-key finger-lm" id="key-4">4</div>
+            <div class="kb-key finger-li" id="key-5">5</div>
+            <div class="kb-key finger-ri" id="key-6">6</div>
+            <div class="kb-key finger-ri" id="key-7">7</div>
+            <div class="kb-key finger-rm" id="key-8">8</div>
+            <div class="kb-key finger-rr" id="key-9">9</div>
+            <div class="kb-key finger-rp" id="key-0">0</div>
+          </div>
+          <div class="kb-row">
+            <div class="kb-key finger-lp" id="key-q">Q</div>
+            <div class="kb-key finger-lr" id="key-w">W</div>
+            <div class="kb-key finger-lm" id="key-e">E</div>
+            <div class="kb-key finger-li" id="key-r">R</div>
+            <div class="kb-key finger-li" id="key-t">T</div>
+            <div class="kb-key finger-ri" id="key-y">Y</div>
+            <div class="kb-key finger-ri" id="key-u">U</div>
+            <div class="kb-key finger-rm" id="key-i">I</div>
+            <div class="kb-key finger-rr" id="key-o">O</div>
+            <div class="kb-key finger-rp" id="key-p">P</div>
+          </div>
+          <div class="kb-row">
+            <div class="kb-key finger-lp" id="key-a">A</div>
+            <div class="kb-key finger-lr" id="key-s">S</div>
+            <div class="kb-key finger-lm" id="key-d">D</div>
+            <div class="kb-key finger-li bump" id="key-f">F</div>
+            <div class="kb-key finger-li" id="key-g">G</div>
+            <div class="kb-key finger-ri" id="key-h">H</div>
+            <div class="kb-key finger-ri bump" id="key-j">J</div>
+            <div class="kb-key finger-rm" id="key-k">K</div>
+            <div class="kb-key finger-rr" id="key-l">L</div>
+            <div class="kb-key finger-rp" id="key-;">;</div>
+          </div>
+          <div class="kb-row">
+            <div class="kb-key finger-lp" id="key-shift" style="min-width:38px;">Shift</div>
+            <div class="kb-key finger-lp" id="key-z">Z</div>
+            <div class="kb-key finger-lr" id="key-x">X</div>
+            <div class="kb-key finger-lm" id="key-c">C</div>
+            <div class="kb-key finger-li" id="key-v">V</div>
+            <div class="kb-key finger-li" id="key-b">B</div>
+            <div class="kb-key finger-ri" id="key-n">N</div>
+            <div class="kb-key finger-ri" id="key-m">M</div>
+            <div class="kb-key finger-rm" id="key-,">,</div>
+            <div class="kb-key finger-rr" id="key-.">.</div>
+            <div class="kb-key finger-rp" id="key-!">!</div>
+          </div>
+          <div class="kb-row">
+            <div class="kb-key finger-thumb" id="key-space" style="width:180px;">Space 空白鍵</div>
+          </div>
+        </div>
+
+        <div style="font-size: 10px; color: #777;">Tip: 請跟隨鍵盤顏色與上方指法提示，堅持不看鍵盤練習！</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 1. 角色選擇 Modal -->
+  <div class="modal-overlay" id="charSelectModal" style="display: flex;">
+    <div class="character-modal-card">
+      <h2 style="color:var(--passport-cover); font-size: 18px;">🧑‍✈️ 選擇您的 Lovely 陪同飛行員</h2>
+      <p style="font-size:11px; color:#666; margin-top:2px;">挑選一位可愛的 Lovely 夥伴陪伴您環遊世界打字吧！</p>
+
+      <div class="char-grid" id="charGrid"></div>
+
+      <button id="confirmCharBtn" onclick="confirmCharacterSelection()" style="background:var(--gold); border:none; padding:8px 24px; font-weight:bold; border-radius:18px; cursor:pointer; font-size:13px; color:var(--navy); opacity: 0.5;" disabled>確認夥伴，出發！</button>
+    </div>
+  </div>
+
+  <!-- 美食護照 Modal -->
+<!-- 📓 旅行練習筆記本 Modal -->
+  <div class="modal-overlay" id="notebookModal">
+    <div class="travel-notebook-book">
+      <span class="close-modal" onclick="closeNotebookModal()" style="color:#4E342E;">&times;</span>
+      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid #8D6E63; padding-bottom:6px;">
+        <div style="font-weight:bold; font-size:15px; color:#3E2723;">📓 環球美食盲打・旅行練習筆記本</div>
+        <div style="font-size:11px; color:#5D4037; font-weight:bold;" id="notebookSummaryText">已記錄 0 國題庫</div>
+      </div>
+
+      <div class="notebook-tabs" id="notebookTabs">
+        <button class="nb-tab active" onclick="filterNotebook('all', this)">🌐 全部紀錄</button>
+        <button class="nb-tab" onclick="filterNotebook('practiced', this)">✅ 已練習題目</button>
+        <button class="nb-tab" onclick="filterNotebook('asia', this)">🌏 亞洲</button>
+        <button class="nb-tab" onclick="filterNotebook('europe', this)">🌍 歐洲</button>
+        <button class="nb-tab" onclick="filterNotebook('americas', this)">🌎 美洲</button>
+        <button class="nb-tab" onclick="filterNotebook('africa', this)">🌍 非洲</button>
+        <button class="nb-tab" onclick="filterNotebook('oceania', this)">🌏 大洋洲</button>
+      </div>
+
+      <div class="notebook-pages" id="notebookPages"></div>
+    </div>
+  </div>
+
+  <!-- 👑 全球飛行員排行榜 Modal -->
+  <div class="modal-overlay" id="leaderboardModal">
+    <div class="leaderboard-book">
+      <span class="close-modal" onclick="closeLeaderboardModal()" style="color:#CBD5E1;">&times;</span>
+      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #334155; padding-bottom:8px;">
+        <div style="font-weight:bold; font-size:16px; color:var(--gold);">👑 環球美食盲打・全體飛行員排行榜</div>
+        <span style="font-size:11px; color:#94A3B8;" id="lbSyncStatus">即時同步中...</span>
+      </div>
+
+      <div class="lb-switch-bar">
+        <button class="lb-switch-btn active" id="lbTabMiles" onclick="switchLeaderboardTab('miles')">✈️ 飛行里程排行 (km)</button>
+        <button class="lb-switch-btn" id="lbTabWpm" onclick="switchLeaderboardTab('wpm')">⚡ 最高航速 / 行數排行 (WPM)</button>
+      </div>
+
+      <div class="lb-list" id="leaderboardList"></div>
+
+      <div style="margin-top:8px; padding-top:8px; border-top:1px solid #334155; display:flex; justify-content:space-between; font-size:11px; color:#CBD5E1;">
+        <span id="lbMyRankText">我的目前排名：計算中...</span>
+        <span>💡 通關越多國家或挑戰雙倍副本可衝高排名！</span>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="passportModal">
+    <div class="passport-book">
+      <span class="close-modal" onclick="closePassportModal()">&times;</span>
+      <div class="passport-header">
+        <div style="font-weight:bold;">📘 環球航線通關護照 (金框 👑 代表已解鎖暗黑美食彩蛋)</div>
+      </div>
+      <div class="passport-grid" id="passportGrid"></div>
+    </div>
+  </div>
+
+  <!-- 🛂 護照印章頒發動畫 Modal -->
+  <div class="modal-overlay" id="passportStampModal" style="z-index: 65;">
+    <div class="passport-stamp-modal-card">
+      <h3 style="color:var(--passport-cover); font-size: 14px; text-transform: uppercase;">✈️ 國家入境邊檢簽發</h3>
+      <h2 id="stampCountryTitle" style="color:var(--navy); font-size: 20px; margin: 4px 0;">🇦🇪 阿拉伯共和國</h2>
+      
+      <div class="stamp-container-box">
+        <div class="passport-stamp-graphic" id="passportStampGraphic">
+          <img id="stampFlagImg" src="" alt="Flag" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; border: 2px solid #C0392B;" />
+          <div style="font-size: 10px; font-weight: bold; margin-top: 4px;" id="stampCountryName">ARABIA</div>
+          <div style="font-size: 8px; border-top: 1px dashed #C0392B; padding-top:2px;">PASSPORT CLEARED</div>
+        </div>
+      </div>
+
+      <p style="font-size: 12px; color: var(--navy); font-weight: bold;" id="stampSubtitle">正式獲得國家通關護照國旗印章！</p>
+      <p style="font-size: 10px; color: #666; margin-bottom: 15px;">您已獲准飛往下一個航線目的地！</p>
+      
+      <button onclick="closePassportStampModal()" style="background:var(--gold); border:none; padding:8px 24px; font-weight:bold; border-radius:16px; cursor:pointer; font-size:13px; color:var(--navy);">收下護照印章！</button>
+    </div>
+  </div>
+
+  <!-- 徽章美食特色中文介紹 Modal -->
+  <div class="modal-overlay" id="badgeDetailModal" style="z-index: 55;">
+    <div class="passport-book" style="width: 420px; height: auto; text-align: center; padding: 20px 24px;">
+      <span class="close-modal" onclick="closeBadgeDetailModal()">&times;</span>
+      <div style="font-size:10px; color:var(--gold); font-weight:bold; letter-spacing:1px;" id="detailCountryTitle">🇹🇼 台灣美食榮譽勳章</div>
+      
+      <div style="display:flex; justify-content:center; margin: 12px 0;">
+        <div class="badge-circle unlocked" id="detailBadgeCircle" style="width: 80px; height: 80px; font-size: 42px;">🧋</div>
+      </div>
+
+      <h3 id="detailBadgeName" style="color:var(--navy); font-size: 18px; margin-bottom: 6px;">珍珠奶茶與牛肉麵</h3>
+      
+      <div style="background:#FFF; border:1px solid #E2D4C9; border-radius:10px; padding:12px; text-align:left; font-size:12px; color:#444; line-height:1.5; margin-bottom: 10px;" id="detailFoodIntro">
+        台灣美食享譽國際。
+      </div>
+
+      <div id="detailDarkFoodBox" style="background:#FFF8E7; border:1px dashed #D4AF37; border-radius:10px; padding:10px; text-align:left; font-size:11px; color:#7C2D12; line-height:1.4; margin-bottom: 14px;">
+        🔒 通關本國【💣 廚房炸彈菜單】即可解鎖暗黑料理吐槽彩蛋！
+      </div>
+
+      <button onclick="closeBadgeDetailModal()" style="background:var(--gold); border:none; padding:6px 20px; font-weight:bold; border-radius:12px; cursor:pointer; color:var(--navy); font-size:12px;">收下美食卡片關閉</button>
+    </div>
+  </div>
+
+  <!-- 特殊成就徽章 Modal -->
+  <div class="modal-overlay" id="bookModal">
+    <div class="achievement-book">
+      <span class="close-modal" onclick="closeBookModal()">&times;</span>
+      <div class="book-header">
+        <div style="font-weight:bold;">🏆 抽象諧音梗成就徽章集冊</div>
+        <div style="font-size:11px;">已解鎖：<span id="unlockedCount">0</span> / 10</div>
+      </div>
+      <div class="badges-grid" id="badgesGrid"></div>
+    </div>
+  </div>
+
+  <!-- 國家專屬關卡選單 Modal -->
+  <div class="modal-overlay" id="levelModal">
+    <div class="passport-book" style="width: 450px; height: auto;">
+      <span class="close-modal" onclick="closeModal()">&times;</span>
+      <h2 style="text-align: center; color: var(--passport-cover); margin-bottom:2px;" id="countryModalTitle">🇹🇼 台灣美食挑戰</h2>
+      <p style="text-align:center; font-size:11px; color:var(--red); font-weight:bold; margin-bottom:10px;" id="mainProgressLabel">主線進度：0 / 3 (完成 3 關解鎖國家美食圖鑑)</p>
+      
+      <p style="font-size:11px; font-weight:bold; color:var(--navy); margin-bottom:4px;">📖 料理指法修煉關卡：</p>
+      
+      <div class="btn-card" id="btn-stage1" onclick="startCountryMode('stage1')">
+        <div>
+          <b id="stage1Name">第 1 關：備料初階指法</b>
+          <div style="font-size:10px; color:#666;" id="stage1Desc">基礎鍵位定位與單指打擊</div>
+        </div>
+        <span class="clear-tag none" id="tag-stage1">可挑戰</span>
+      </div>
+
+      <div class="btn-card" id="btn-stage2" onclick="startCountryMode('stage2')">
+        <div>
+          <b id="stage2Name">第 2 關：烹飪進階指法</b>
+          <div style="font-size:10px; color:#666;" id="stage2Desc">雙手交替與區域擴充指法</div>
+        </div>
+        <span class="clear-tag locked" id="tag-stage2">🔒 需過第1關</span>
+      </div>
+
+      <div class="btn-card" id="btn-stage3" onclick="startCountryMode('stage3')">
+        <div>
+          <b id="stage3Name">第 3 關：上菜流暢指法</b>
+          <div style="font-size:10px; color:#666;" id="stage3Desc">連打節奏與出餐盲打考驗</div>
+        </div>
+        <span class="clear-tag locked" id="tag-stage3">🔒 需過第2關</span>
+      </div>
+
+      <p style="font-size:11px; font-weight:bold; color:var(--red); margin:10px 0 4px 0;">🔥 雙倍飛行里程 & 副本星數挑戰：</p>
+      
+      <div style="display:flex; gap:8px;">
+        <div class="btn-card" id="btn-speed" style="flex:1;" onclick="startCountryMode('speed')">
+          <div>
+            <b>🔥 美食暴走 Fever</b>
+            <div style="font-size:9px; color:#666;">雙倍里程 + 副本星 ⭐</div>
+          </div>
+          <span class="clear-tag none" id="tag-speed">挑戰</span>
+        </div>
+
+        <div class="btn-card" id="btn-perfect" style="flex:1;" onclick="startCountryMode('perfect')">
+          <div>
+            <b>💣 廚房炸彈菜單</b>
+            <div style="font-size:9px; color:#666;">0 錯字解鎖護照金框 👑</div>
+          </div>
+          <span class="clear-tag none" id="tag-perfect">挑戰</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 國家特色徽章解鎖動畫 Modal -->
+  <div class="modal-overlay" id="badgeUnlockModal" style="z-index: 60;">
+    <div class="badge-unlock-card" id="badgeUnlockCard">
+      <div id="confettiContainer"></div>
+      <h3 style="color:var(--passport-cover); font-size: 13px; text-transform: uppercase;">🎉 國家通關榮譽徽章解鎖！</h3>
+      
+      <div style="display:flex; justify-content:center; margin: 8px 0;">
+        <div class="badge-circle unlocked" id="unlockBadgeIcon" style="width:90px; height:90px; font-size:50px;">🧋</div>
+      </div>
+
+      <h2 id="unlockBadgeTitle" style="color:var(--navy); font-size: 18px; margin-bottom: 4px;">🇹🇼 寶島珍奶榮譽徽章</h2>
+      <p id="unlockBadgeDesc" style="font-size: 11px; color: #555; line-height: 1.4; margin-bottom: 14px;">恭喜您完美通過所有指法考驗，解鎖國家美食故事圖鑑！</p>
+      <button onclick="closeBadgeUnlockModal()" style="background:var(--gold); border:none; padding:8px 24px; font-weight:bold; border-radius:16px; cursor:pointer; font-size:13px; color:var(--navy);">太棒了，繼續旅程！</button>
+    </div>
+  </div>
+
+  <!-- 結算 / 玩家自主選擇下一站 Modal -->
+  <div class="modal-overlay" id="resultModal">
+    <div class="passport-book" style="width: 380px; height: auto; text-align: center; padding: 20px;">
+      <h2 id="resultTitle">🎉 美食順利出餐！</h2>
+      <div id="autoNextBanner" style="background:#DCFCE7; color:var(--green); font-size:12px; font-weight:bold; padding:6px; border-radius:8px; margin:8px 0;">
+        ⏱️ <span id="autoNextCount">3</span> 秒後自動無縫進入下一關...
+      </div>
+      <div id="badgeRewardNotice" style="display:none; color:#B45309; background:#FEF3C7; padding:6px; border-radius:8px; font-weight:bold; margin-top:6px; font-size:11px; line-height:1.4;"></div>
+      <div style="margin: 10px 0; font-size: 13px; line-height: 1.6;">
+        <div>獲得里程：<b id="resultMilesGained" style="color:var(--gold); font-size:16px;">+0 km</b></div>
+        <div>花費時間：<b id="resultTime" style="color:var(--red);">0.0</b> 秒 ｜ 錯字：<b id="resultErrors" style="color:var(--red);">0</b> 次</div>
+        <div>出餐速度：<b id="resultWPM" style="color:var(--green);">0</b> WPM</div>
+      </div>
+      <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;">
+        <button id="nextStageBtn" onclick="manualNextStageAction()" style="background:var(--green); color:white; border:none; padding:8px 16px; font-weight:bold; border-radius:12px; cursor:pointer; font-size:12px;">立即下一關 👉</button>
+        <button onclick="closeResultModal()" style="background:var(--gold); color:var(--navy); border:none; padding:8px 16px; font-weight:bold; border-radius:12px; cursor:pointer; font-size:12px;">🗺️ 返回地圖</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 🔗 Google Apps Script 部署網址
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbz2QBFjhje51867KrhrP-AV7G5zOegE1qt2bQFYM5q6L1pQMAf9A1m9eZfKoHl3HIqgMg/exec";
+    let currentUsername = localStorage.getItem('typingGameUsername') || '';
+
+    const charactersList = [
+      { id: 0, name: "SAVELY", file: "SAVELY.png" },
+      { id: 1, name: "MOVELY", file: "MOVELY.jpg" },
+      { id: 2, name: "NAVELY", file: "NAVELY.jpg" },
+      { id: 3, name: "TZUVELY", file: "TZUVELY.jpg" },
+      { id: 4, name: "JIVELY", file: "JIVELY.jpg" },
+      { id: 5, name: "CHAENGVELY", file: "CHAENGVELY.jpg" },
+      { id: 6, name: "DAVELY", file: "DAVELY.jpg" },
+      { id: 7, name: "JEONGVELY", file: "JEONGVELY.jpg" },
+      { id: 8, name: "MIVELY", file: "MIVELY.jpg" }
+    ];
+
+    const fingerMap = {
+      'a': { name: '左手小指', class: 'finger-lp' },
+      'q': { name: '左手小指', class: 'finger-lp' },
+      'z': { name: '左手小指', class: 'finger-lp' },
+      '1': { name: '左手小指', class: 'finger-lp' },
+      's': { name: '左手無名指', class: 'finger-lr' },
+      'w': { name: '左手無名指', class: 'finger-lr' },
+      'x': { name: '左手無名指', class: 'finger-lr' },
+      '2': { name: '左手無名指', class: 'finger-lr' },
+      'd': { name: '左手中指', class: 'finger-lm' },
+      'e': { name: '左手中指', class: 'finger-lm' },
+      'c': { name: '左手中指', class: 'finger-lm' },
+      '3': { name: '左手中指', class: 'finger-lm' },
+      'f': { name: '左手食指 (基準鍵)', class: 'finger-li' },
+      'r': { name: '左手食指', class: 'finger-li' },
+      'v': { name: '左手食指', class: 'finger-li' },
+      '4': { name: '左手食指', class: 'finger-li' },
+      'g': { name: '左手食指 (向右伸)', class: 'finger-li' },
+      't': { name: '左手食指 (向上伸)', class: 'finger-li' },
+      'b': { name: '左手食指 (向下伸)', class: 'finger-li' },
+      '5': { name: '左手食指', class: 'finger-li' },
+      'j': { name: '右手食指 (基準鍵)', class: 'finger-ri' },
+      'u': { name: '右手食指', class: 'finger-ri' },
+      'm': { name: '右手食指', class: 'finger-ri' },
+      '7': { name: '右手食指', class: 'finger-ri' },
+      'h': { name: '右手食指 (向左伸)', class: 'finger-ri' },
+      'y': { name: '右手食指 (向上伸)', class: 'finger-ri' },
+      'n': { name: '右手食指 (向下伸)', class: 'finger-ri' },
+      '6': { name: '右手食指', class: 'finger-ri' },
+      'k': { name: '右手中指', class: 'finger-rm' },
+      'i': { name: '右手中指', class: 'finger-rm' },
+      ',': { name: '右手中指', class: 'finger-rm' },
+      '8': { name: '右手中指', class: 'finger-rm' },
+      'l': { name: '右手無名指', class: 'finger-rr' },
+      'o': { name: '右手無名指', class: 'finger-rr' },
+      '.': { name: '右手無名指', class: 'finger-rr' },
+      '9': { name: '右手無名指', class: 'finger-rr' },
+      ';': { name: '右手小指', class: 'finger-rp' },
+      'p': { name: '右手小指', class: 'finger-rp' },
+      '!': { name: '右手小指', class: 'finger-rp' },
+      '0': { name: '右手小指', class: 'finger-rp' },
+      ' ': { name: '大拇指 (按空白鍵)', class: 'finger-thumb' }
+    };
+
+    /* 50 個國家連續鏈結 */
+    const worldData = [
+      // 🌏 1. 亞洲 10 國（東 -> 西）
+      { id: 'taiwan', name: '🇹🇼 台灣', code: 'tw', continent: 'asia', lon: 121.0, lat: 23.5, mainHub: true, badgeIcon: '🧋', badgeTitle: '🇹🇼 珍珠奶茶與牛肉麵', badgeDesc: '1. fj 基準鍵搖搖節奏！', foodIntro: '台灣國寶級飲品珍珠奶茶與濃郁高湯牛肉麵。', darkFood: '暗黑彩蛋：【香菜皮蛋豬血糕珍奶】—— 老闆表示喝完直接原地升天，外國人看了會報警！' },
+      { id: 'japan', name: '🇯🇵 日本', code: 'jp', continent: 'asia', lon: 138.2, lat: 36.2, mainHub: false, badgeIcon: '🍜', badgeTitle: '🇯🇵 職人豚骨拉麵', badgeDesc: '2. asdf 左手中排打擊！', foodIntro: '濃郁豚骨高湯配上細直麵與炙燒叉燒。', darkFood: '暗黑彩蛋：【整顆哈密瓜霜淇淋拉麵】—— 甜鹹交織的視覺衝擊，職人看了沉默三分鐘！' },
+      { id: 'korea', name: '🇰🇷 韓國', code: 'kr', continent: 'asia', lon: 127.7, lat: 35.9, mainHub: false, badgeIcon: '🍲', badgeTitle: '🇰🇷 宮廷石鍋拌飯', badgeDesc: '3. ghjkl; 右手+伸展鍵！', foodIntro: '滾燙石鍋鋪上蔬菜與特製辣醬。', darkFood: '暗黑彩蛋：【薄荷巧克力辣炒年糕】—— 牙膏味遇上地獄辣醬，口腔冰火五重天！' },
+      { id: 'china', name: '🇨🇳 中國', code: 'cn', continent: 'asia', lon: 116.4, lat: 39.9, mainHub: false, badgeIcon: '🥟', badgeTitle: '🇨🇳 鮮肉小籠湯包', badgeDesc: '4. asdf jkl 中排雙手流暢！', foodIntro: '皮薄汁多的傳統鮮肉小籠包。', darkFood: '暗黑彩蛋：【榴槤臭豆腐爆漿湯包】—— 一咬下去方圓十里瞬間清空！' },
+      { id: 'vietnam', name: '🇻🇳 越南', code: 'vn', continent: 'asia', lon: 105.8, lat: 21.0, mainHub: false, badgeIcon: '🍲', badgeTitle: '🇻🇳 越式牛肉河粉', badgeDesc: '5. qwer 左手上排打擊！', foodIntro: '清甜牛骨高湯搭配薄切牛肉與九層塔。', darkFood: '暗黑彩蛋：【十倍香菜純菜湯河粉】—— 整碗綠到發光，香菜控的天堂、反香菜聯盟的地獄！' },
+      { id: 'philippines', name: '🇵🇭 菲律賓', code: 'ph', continent: 'asia', lon: 120.9, lat: 14.6, mainHub: false, badgeIcon: '🍧', badgeTitle: '🇵🇭 Halo-Halo 冰品', badgeDesc: '6. tyuiop 右手上排打擊！', foodIntro: '刨冰鋪滿彩虹配料與紫薯冰淇淋。', darkFood: '暗黑彩蛋：【鹹魚起司紫薯刨冰】—— 甜鹹混搭到最高境界，挑戰你的味蕾極限！' },
+      { id: 'malaysia', name: '🇲🇾 馬來西亞', code: 'my', continent: 'asia', lon: 101.7, lat: 3.1, mainHub: false, badgeIcon: '🍢', badgeTitle: '🇲🇾 沙嗲烤肉串', badgeDesc: '7. 上排 + 下排交替跨排！', foodIntro: '南洋香料醃製肉串搭配特製花生醬。', darkFood: '暗黑彩蛋：【貓山王榴槤沾醬沙嗲】—— 炭烤肉串裹滿濃郁榴槤泥，香氣直衝天靈蓋！' },
+      { id: 'thailand', name: '🇹🇭 泰國', code: 'th', continent: 'asia', lon: 100.5, lat: 13.7, mainHub: false, badgeIcon: '🥣', badgeTitle: '🇹🇭 冬蔭功酸辣湯', badgeDesc: '8. bnm, 右手下排打擊！', foodIntro: '香茅檸檬葉與鮮蝦熬煮酸辣濃湯。', darkFood: '暗黑彩蛋：【朝天椒椰奶跳跳糖冬蔭功】—— 喝一口嘴巴裡直接放煙火！' },
+      { id: 'india', name: '🇮🇳 印度', code: 'in', continent: 'asia', lon: 78.9, lat: 20.5, mainHub: false, badgeIcon: '🍛', badgeTitle: '🇮🇳 奶油咖哩烤餅', badgeDesc: '9. 全鍵盤盲打大滿貫！', foodIntro: '濃郁奶油咖哩搭配坦都里現烤 Naan 餅。', darkFood: '暗黑彩蛋：【瑪莎拉香料珍珠奶茶咖哩】—— 把珍奶倒進咖哩一起燉，恆河主廚都說讚！' },
+      { id: 'uae', name: '🇦🇪 阿拉伯', code: 'ae', continent: 'asia', lon: 54.3, lat: 24.4, mainHub: false, badgeIcon: '🥙', badgeTitle: '🇦🇪 烤羊肉沙威瑪', badgeDesc: '10. zxcv 左手下排打擊！', foodIntro: '香料醃製羊肉慢火旋轉炭烤切片。', darkFood: '暗黑彩蛋：【24K 純金箔駱駝起司沙威瑪】—— 吃一口直接身價暴漲，牙齒閃閃發光！' },
+
+      // 🌍 2. 歐洲 10 國（由東到西，全鍵盤隨機難度 1 -> 10 階）
+      { id: 'greece', name: '🇬🇷 希臘', code: 'gr', continent: 'europe', lon: 23.7, lat: 37.9, mainHub: true, badgeIcon: '🥙', badgeTitle: '🇬🇷 希臘烤肉捲餅', badgeDesc: '第1階：全鍵盤 3 字母跨排隨機！', foodIntro: '特製香料烤肉搭配優格醬與薄餅。', darkFood: '暗黑彩蛋：【奧林匹斯眾神爆蒜優格捲】—— 吃完三天內吸血鬼不敢靠近你半步！' },
+      { id: 'poland', name: '🇵🇱 波蘭', code: 'pl', continent: 'europe', lon: 21.0, lat: 52.2, mainHub: false, badgeIcon: '🥟', badgeTitle: '🇵🇱 波蘭傳統餃子', badgeDesc: '第2階：全鍵盤 4 字母大跨度隨機！', foodIntro: '包入馬鈴薯與起司的波蘭溫暖餃子。', darkFood: '暗黑彩蛋：【草莓優格甜水餃】—— 波蘭人真的這樣吃，亞洲人看了陷入沉思！' },
+      { id: 'sweden', name: '🇸🇪 瑞典', code: 'se', continent: 'europe', lon: 18.0, lat: 59.3, mainHub: false, badgeIcon: '🧆', badgeTitle: '🇸🇪 肉丸佐越橘醬', badgeDesc: '第3階：5 字母高頻伸展鍵隨機！', foodIntro: '經典瑞典肉丸搭配特製濃汁與越橘醬。', darkFood: '暗黑彩蛋：【瑞典鹽醃鯡魚罐頭肉丸】—— 打開瞬間方圓五百公尺生物全數撤離！' },
+      { id: 'germany', name: '🇩🇪 德國', code: 'de', continent: 'europe', lon: 10.4, lat: 51.1, mainHub: false, badgeIcon: '🌭', badgeTitle: '🇩🇪 脆皮德國豬腳', badgeDesc: '第4階：字首 Shift 大寫隨機！', foodIntro: '外皮金黃酥脆、肉質多汁的傳統烤豬腳。', darkFood: '暗黑彩蛋：【黑啤酒泡跳跳糖豬腳】—— 酥脆豬皮在嘴裡劈啪作響的奇妙體驗！' },
+      { id: 'italy', name: '🇮🇹 義大利', code: 'it', continent: 'europe', lon: 12.5, lat: 41.8, mainHub: false, badgeIcon: '🍕', badgeTitle: '🇮🇹 拿坡里披薩', badgeDesc: '第5階：組內大小寫交錯隨機！', foodIntro: '莫札瑞拉起司與新鮮羅勒窯烤披薩。', darkFood: '暗黑彩蛋：【雙倍鳳梨加珍珠奶茶披薩】—— 義大利人正在提著擀麵棍趕來的路上！' },
+      { id: 'switzerland', name: '🇨🇭 瑞士', code: 'ch', continent: 'europe', lon: 8.2, lat: 46.8, mainHub: false, badgeIcon: '🧀', badgeTitle: '🇨🇭 熔岩起司鍋', badgeDesc: '第6階：全鍵盤隨機 + 數字 1-5！', foodIntro: '濃郁融化起司沾裹香脆麵包塊。', darkFood: '暗黑彩蛋：【臭豆腐藍紋起司鍋】—— 濃郁程度突破天際，連阿爾卑斯山雪怪都暈倒！' },
+      { id: 'netherlands', name: '🇳🇱 荷蘭', code: 'nl', continent: 'europe', lon: 4.9, lat: 52.3, mainHub: false, badgeIcon: '🧇', badgeTitle: '🇳🇱 焦糖煎餅', badgeDesc: '第7階：全鍵盤隨機 + 數字 6-0！', foodIntro: '熱茶上烘軟的香甜焦糖夾心煎餅。', darkFood: '暗黑彩蛋：【甘草糖鹹魚焦糖煎餅】—— 荷蘭人最愛的超硬核鹹甘草糖夾心！' },
+      { id: 'france', name: '🇫🇷 法國', code: 'fr', continent: 'europe', lon: 2.2, lat: 46.2, mainHub: false, badgeIcon: '🥐', badgeTitle: '🇫🇷 金黃蜂巢可頌', badgeDesc: '第8階：全鍵盤隨機 + 標點符號！', foodIntro: '發酵奶油摺疊出的金黃酥脆可頌。', darkFood: '暗黑彩蛋：【法式蝸牛大蒜霜淇淋可頌】—— 巴黎米其林主廚看了直接宣布退休！' },
+      { id: 'uk', name: '🇬🇧 英國', code: 'gb', continent: 'europe', lon: -0.1, lat: 51.5, mainHub: false, badgeIcon: '🐟', badgeTitle: '🇬🇧 炸魚薯條', badgeDesc: '第9階：8 碼長字串無停頓隨機！', foodIntro: '金黃酥脆炸魚搭配外酥內軟大薯條。', darkFood: '暗黑彩蛋：【仰望星空派佐薄荷醬】—— 死不瞑目的魚頭正從派皮裡深情看著你！' },
+      { id: 'spain', name: '🇪🇸 西班牙', code: 'es', continent: 'europe', lon: -3.7, lat: 40.4, mainHub: false, badgeIcon: '🥘', badgeTitle: '🇪🇸 番紅花海鮮飯', badgeDesc: '第10階：歐洲終極全鍵盤大滿貫！', foodIntro: '番紅花米飯鋪滿蝦貝淡菜海鮮盛宴。', darkFood: '暗黑彩蛋：【墨魚汁巧克力海鮮飯】—— 吃完牙齒全黑，笑起來像剛挖完煤礦！' },
+
+// 🌎 3. 美洲 20 國（北美洲 8 國寬鬆排列 ➔ 南美洲 12 國進階長單字，總數維持 20 國）
+      { id: 'canada', name: '🇨🇦 加拿大', code: 'ca', continent: 'americas', wordType: 'short', lon: -106.3, lat: 55.0, mainHub: true, badgeIcon: '🍟', badgeTitle: '🇨🇦 普丁肉汁薯條', badgeDesc: '基礎單字：fries, gravy, maple', foodIntro: '香濃肉汁與起司塊淋在熱騰騰薯條上。' },
+      { id: 'usa', name: '🇺🇸 美國', code: 'us', continent: 'americas', wordType: 'short', lon: -98.0, lat: 39.0, mainHub: false, badgeIcon: '🍔', badgeTitle: '🇺🇸 雙層牛肉漢堡', badgeDesc: '基礎單字：burger, cheese, beef', foodIntro: '多汁牛肉排搭配熔化切達起司。' },
+      { id: 'mexico', name: '🇲🇽 墨西哥', code: 'mx', continent: 'americas', wordType: 'short', lon: -102.5, lat: 24.0, mainHub: false, badgeIcon: '🌮', badgeTitle: '🇲🇽 塔可玉米餅', badgeDesc: '基礎單字：taco, salsa, corn', foodIntro: '香辣碎肉搭配莎莎醬與玉米餅。' },
+      { id: 'belize', name: '🇧🇿 貝里斯', code: 'bz', continent: 'americas', wordType: 'short', lon: -90.2, lat: 16.5, mainHub: false, badgeIcon: '🥧', badgeTitle: '🇧🇿 肉派小吃', badgeDesc: '單字整合：pie, meat, oven', foodIntro: '金黃酥脆包入香辣燉肉的國民小吃。' },
+      { id: 'costa_rica', name: '🇨🇷 哥斯達黎加', code: 'cr', continent: 'americas', wordType: 'short', lon: -85.0, lat: 10.5, mainHub: false, badgeIcon: '🍛', badgeTitle: '🇨🇷 黑豆佐香米飯', badgeDesc: '基礎單字：rice, beans, fruit', foodIntro: '哥斯達黎加營養滿分的經典黑豆飯。' },
+      { id: 'panama', name: '🇵🇦 巴拿馬', code: 'pa', continent: 'americas', wordType: 'short', lon: -78.5, lat: 8.2, mainHub: false, badgeIcon: '🍲', badgeTitle: '🇵🇦 海鮮大繪湯', badgeDesc: '基礎單字：soup, fish, fresh', foodIntro: '運河匯集的新鮮海鮮濃郁蔬菜湯。' },
+      { id: 'cuba', name: '🇨🇺 古巴', code: 'cu', continent: 'americas', wordType: 'short', lon: -79.5, lat: 22.2, mainHub: false, badgeIcon: '🥪', badgeTitle: '🇨🇺 古巴烤三明治', badgeDesc: '基礎單字：pork, bread, toast', foodIntro: '酸黃瓜起司烤豬肉熱壓三明治。' },
+      { id: 'dominican', name: '🇩🇴 多明尼加', code: 'do', continent: 'americas', wordType: 'short', lon: -69.5, lat: 19.0, mainHub: false, badgeIcon: '🍌', badgeTitle: '🇩🇴 蒜香芭蕉泥', badgeDesc: '基礎單字：sweet, garlic, mash', foodIntro: '炸芭蕉搗成泥佐培根蒜香醬。' },
+      // --- 以下為南美洲 12 國（進階長單字） ---
+      { id: 'colombia', name: '🇨🇴 哥倫比亞', code: 'co', continent: 'americas', wordType: 'long', lon: -74.5, lat: 4.5, mainHub: false, badgeIcon: '🫓', badgeTitle: '🇨🇴 哥倫比亞起司餅', badgeDesc: '長單字：breakfast, kitchen, cheese', foodIntro: '玉米餅夾入滿滿拉絲起司香煎。' },
+      { id: 'venezuela', name: '🇻🇪 委內瑞拉', code: 've', continent: 'americas', wordType: 'long', lon: -66.5, lat: 7.2, mainHub: false, badgeIcon: '🫓', badgeTitle: '🇻🇪 玉米餅夾絲肉', badgeDesc: '南美長單字大滿貫考驗！', foodIntro: '酥脆玉米餅包入手撕牛肉與黃起司。' },
+      { id: 'guyana', name: '🇬🇾 蓋亞那', code: 'gy', continent: 'americas', wordType: 'long', lon: -59.0, lat: 5.0, mainHub: false, badgeIcon: '🥘', badgeTitle: '🇬🇾 加勒比胡椒燉肉', badgeDesc: '長單字：tropical, cinnamon, pepper', foodIntro: '木薯汁與香料慢火熬煮的傳統節慶燉肉。' },
+      { id: 'suriname', name: '🇸🇷 蘇利南', code: 'sr', continent: 'americas', wordType: 'long', lon: -55.2, lat: 4.0, mainHub: false, badgeIcon: '🍜', badgeTitle: '🇸🇷 花生醬芭蕉湯', badgeDesc: '長單字：peanut, plantain, delicious', foodIntro: '融合南美與南洋風味的濃郁花生湯。' },
+      { id: 'ecuador', name: '🇪🇨 厄瓜多', code: 'ec', continent: 'americas', wordType: 'long', lon: -78.5, lat: -1.8, mainHub: false, badgeIcon: '🦐', badgeTitle: '🇪🇨 赤道鮮蝦雞尾酒', badgeDesc: '長單字：tropical, cocktail, shrimp', foodIntro: '茄汁檸檬鮮蝦涼拌熱帶小吃。' },
+      { id: 'peru', name: '🇵🇪 秘魯', code: 'pe', continent: 'americas', wordType: 'long', lon: -75.0, lat: -9.5, mainHub: false, badgeIcon: '🥗', badgeTitle: '🇵🇪 檸檬生汁醃魚', badgeDesc: '長單字：pineapple, seafood, lemon', foodIntro: '檸檬汁醃製鮮魚佐紫洋蔥香菜。' },
+      { id: 'bolivia', name: '🇧🇴 玻利維亞', code: 'bo', continent: 'americas', wordType: 'long', lon: -64.0, lat: -16.5, mainHub: false, badgeIcon: '🍲', badgeTitle: '🇧🇴 高山燉肉湯', badgeDesc: '長單字：vegetable, potatoes, cooking', foodIntro: '高原蔬菜與牛肉慢燉的滋補濃湯。' },
+      { id: 'brazil', name: '🇧🇷 巴西', code: 'br', continent: 'americas', wordType: 'long', lon: -50.5, lat: -13.5, mainHub: false, badgeIcon: '🥩', badgeTitle: '🇧🇷 桑巴巴西窯烤', badgeDesc: '長單字：barbecue, delicious, steak', foodIntro: '粗鹽炭火慢烤 Picanha 頂級牛肉。' },
+      { id: 'paraguay', name: '🇵🇾 巴拉圭', code: 'py', continent: 'americas', wordType: 'long', lon: -58.0, lat: -23.5, mainHub: false, badgeIcon: '🧀', badgeTitle: '🇵🇾 帕瑪起司麵包', badgeDesc: '長單字：bakery, homemade, cheese', foodIntro: '木薯粉與起司烘烤出的香 Q 麵包。' },
+      { id: 'uruguay', name: '🇺🇾 烏拉圭', code: 'uy', continent: 'americas', wordType: 'long', lon: -55.0, lat: -32.5, mainHub: false, badgeIcon: '🥪', badgeTitle: '🇺🇾 烏拉圭巨無霸堡', badgeDesc: '長單字：sandwich, hamburger, gourmet', foodIntro: '牛排火腿起司蛋多層次豪華三明治。' },
+      { id: 'chile', name: '🇨🇱 智利', code: 'cl', continent: 'americas', wordType: 'long', lon: -71.5, lat: -34.5, mainHub: false, badgeIcon: '🥟', badgeTitle: '🇨🇱 智利牛肉烤包', badgeDesc: '長單字：chocolate, traditional, recipe', foodIntro: '包入牛肉洋蔥與橄欖的金黃烤餅包。' },
+      { id: 'argentina', name: '🇦🇷 阿根廷', code: 'ar', continent: 'americas', wordType: 'long', lon: -64.0, lat: -39.5, mainHub: false, badgeIcon: '🥩', badgeTitle: '🇦🇷 炭烤大牛排', badgeDesc: '長單字：restaurant, roasted, dinner', foodIntro: '青醬佐豪氣原塊炭烤牛排。' },      // 🌍 4. 非洲 5 國（由最西端向東南順向連線）
+      { id: 'senegal', name: '🇸🇳 塞內加爾', code: 'sn', continent: 'africa', lon: -17.4, lat: 14.7, mainHub: true, badgeIcon: '🍛', badgeTitle: '🇸🇳 塞內加爾魚香飯', badgeDesc: '短句：Enjoy your meal.', foodIntro: '西非經典番茄香料燉鮮魚與碎米飯。' },
+      { id: 'egypt', name: '🇪🇬 埃及', code: 'eg', continent: 'africa', lon: 30.8, lat: 26.8, mainHub: false, badgeIcon: '🍲', badgeTitle: '🇪🇬 庫沙利鷹嘴豆飯', badgeDesc: '短句：Welcome to Egypt!', foodIntro: '通心粉米飯鷹嘴豆佐香辣番茄醬。' },
+      { id: 'kenya', name: '🇰🇪 肯亞', code: 'ke', continent: 'africa', lon: 37.9, lat: -0.02, mainHub: false, badgeIcon: '🥩', badgeTitle: '🇰🇪 肯亞烤肉宴', badgeDesc: '短句：Fresh coffee from Kenya!', foodIntro: '豪氣炭火烤肉搭配特製辣椒沾醬。' },
+      { id: 'madagascar', name: '🇲🇬 馬達加斯加', code: 'mg', continent: 'africa', lon: 46.8, lat: -18.7, mainHub: false, badgeIcon: '🍚', badgeTitle: '🇲🇬 瘤牛佐香米飯', badgeDesc: '短句：Delicious island food!', foodIntro: '島嶼特色瘤牛肉燉蔬菜香米飯。' },
+      { id: 'south_africa', name: '🇿🇦 南非', code: 'za', continent: 'africa', lon: 22.9, lat: -30.5, mainHub: false, badgeIcon: '🌭', badgeTitle: '🇿🇦 南非農夫香腸', badgeDesc: '短句：Taste the barbecue!', foodIntro: '香料粗肉香腸炭火烤至外脆內汁。' },
+
+      // 🌏 5. 大洋洲 5 國（由西北向東南順向連線）
+      { id: 'palau', name: '🇵🇼 帛琉', code: 'pw', continent: 'oceania', lon: 134.5, lat: 7.5, mainHub: true, badgeIcon: '🥣', badgeTitle: '🇵🇼 椰香芋頭湯', badgeDesc: '長句：Try the sweet coconut taro soup today!', foodIntro: '濃郁椰奶慢燉熱帶芋頭濃湯。' },
+      { id: 'australia', name: '🇦🇺 澳洲', code: 'au', continent: 'oceania', lon: 133.7, lat: -25.2, mainHub: false, badgeIcon: '🥧', badgeTitle: '🇦🇺 肉汁牛肉派', badgeDesc: '長句：Australia serves hot beef pie.', foodIntro: '金黃酥皮包裹濃郁燉牛肉醬汁。' },
+      { id: 'fiji', name: '🇫🇯 斐濟', code: 'fj', continent: 'oceania', lon: 178.0, lat: -17.7, mainHub: false, badgeIcon: '🐟', badgeTitle: '🇫🇯 椰汁醃鮮魚', badgeDesc: '長句：Fresh fish with coconut milk is perfect.', foodIntro: '新鮮生魚片浸泡椰奶與檸檬汁。' },
+      { id: 'samoa', name: '🇼🇸 薩摩亞', code: 'ws', continent: 'oceania', lon: 176.5, lat: -13.7, mainHub: false, badgeIcon: '🐷', badgeTitle: '🇼🇸 地爐烤豬肉', badgeDesc: '長句：Congratulations! You are the Typing Master!', foodIntro: '傳統地爐石頭慢火炭烤香嫩豚肉。' },
+      { id: 'new_zealand', name: '🇳🇿 紐西蘭', code: 'nz', continent: 'oceania', lon: 174.8, lat: -40.9, mainHub: false, badgeIcon: '🍰', badgeTitle: '🇳🇿 帕洛娃蛋白霜餅', badgeDesc: '長句：New Zealand kiwi dessert is great!', foodIntro: '外酥內軟蛋白霜餅鋪滿奇異果鮮奶油。' }
+    ];
+
+    const continentViews = {
+      'world': { center: [15, 12], zoom: 1.0 },
+      'asia': { center: [105, 30], zoom: 1.95 },
+      'europe': { center: [18, 51], zoom: 2.6 },
+      'americas': { center: [-98, 35], zoom: 1.85 },
+      'americas_north': { center: [-98, 35], zoom: 1.85 },
+      'americas_south': { center: [-63, -19], zoom: 1.75 },
+      'africa': { center: [16, -6], zoom: 1.75 },
+      'oceania': { center: [148, -17], zoom: 1.65 }
+    };
+    /* 專屬題庫 */
+    const countryQuestions = {
+      taiwan: {
+        stage1: [{ target: "fff jjj fjfj", zh: "F/J 基準鍵搖搖練習", icon: "🧋" }],
+        stage2: [{ target: "fjfj fffj jjjf", zh: "雙手交替快速搖珍奶", icon: "🧋" }],
+        stage3: [{ target: "fj fj ff jj fjfj", zh: "夜市珍珠奶茶完美出餐", icon: "🧋" }],
+        speed: [{ target: "ffff jjjj fjfj", zh: "🔥 美食暴走狂搖珍奶", icon: "⚡" }],
+        perfect: [{ target: "fff jjj fjfj", zh: "💣 廚房防炸彈 0 錯字考驗", icon: "🎯" }]
+      },
+      japan: {
+        stage1: [{ target: "asdf asdf fdas", zh: "左手 Home Row 基準鍵練習", icon: "🍜" }],
+        stage2: [{ target: "asdf fdsa aass ddff", zh: "左手四指流暢連打切叉燒", icon: "🍜" }],
+        stage3: [{ target: "a s d f asdf fdsa", zh: "職人豚骨拉麵美味出餐", icon: "🍜" }],
+        speed: [{ target: "asdf asdf asdf", zh: "🔥 極速切叉燒連打", icon: "⚡" }],
+        perfect: [{ target: "asdf fdsa asdf", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      korea: {
+        stage1: [{ target: "ghjk l;gh jkl;", zh: "右手 Home Row 與 G/H 伸展鍵", icon: "🍲" }],
+        stage2: [{ target: "ghgh jkl; ghjkl;", zh: "塗抹韓式辣醬雙手伸展", icon: "🍲" }],
+        stage3: [{ target: "g h j k l ; ghjkl;", zh: "宮廷石鍋拌飯滋滋作響", icon: "🍲" }],
+        speed: [{ target: "ghjkl; ghjkl;", zh: "🔥 石鍋狂拌連打", icon: "⚡" }],
+        perfect: [{ target: "ghjkl; ghgh jkl;", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      china: {
+        stage1: [{ target: "asdf jkl; asdf jkl;", zh: "雙手 Home Row 中排交替", icon: "🥟" }],
+        stage2: [{ target: "asdfjkl; fdsajkl;", zh: "雙手四指連打擀麵皮", icon: "🥟" }],
+        stage3: [{ target: "asdf jkl asdf jkl", zh: "鮮肉小籠湯包蒸熟出籠", icon: "🥟" }],
+        speed: [{ target: "asdfjkl; asdfjkl;", zh: "🔥 極速包湯包", icon: "⚡" }],
+        perfect: [{ target: "asdf jkl asdf jkl", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      vietnam: {
+        stage1: [{ target: "qwer qwer rewq", zh: "左手 Upper Row 上排打擊", icon: "🍲" }],
+        stage2: [{ target: "qwer rewq qqww eerr", zh: "左手上排連打夾牛肉片", icon: "🍲" }],
+        stage3: [{ target: "q w e r qwer rewq", zh: "越式牛肉河粉擠上檸檬", icon: "🍲" }],
+        speed: [{ target: "qwer qwer qwer", zh: "🔥 極速燙河粉", icon: "⚡" }],
+        perfect: [{ target: "qwer rewq qwer", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      philippines: {
+        stage1: [{ target: "tyui op tyuiop", zh: "右手與中間 Upper Row 上排", icon: "🍧" }],
+        stage2: [{ target: "tyuiop poiuyt ttyy", zh: "上排右手連打鋪彩虹配料", icon: "🍧" }],
+        stage3: [{ target: "ty ui op tyuiop", zh: "Halo-Halo 彩虹冰品出餐", icon: "🍧" }],
+        speed: [{ target: "tyuiop tyuiop", zh: "🔥 極速刨冰連打", icon: "⚡" }],
+        perfect: [{ target: "tyuiop poiuyt", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      malaysia: {
+        stage1: [{ target: "qwer zxcv uiop bnm,", zh: "上排與下排區域跨排切換", icon: "🍢" }],
+        stage2: [{ target: "qwer bnm, uiop zxcv", zh: "上下排跳躍連打炭烤沙嗲", icon: "🍢" }],
+        stage3: [{ target: "qwerzxcv uiopbnm,", zh: "南洋香料沙嗲烤肉串出餐", icon: "🍢" }],
+        speed: [{ target: "qwerzxcv uiopbnm,", zh: "🔥 炭烤沙嗲極速連打", icon: "⚡" }],
+        perfect: [{ target: "qwer zxcv uiop bnm,", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      thailand: {
+        stage1: [{ target: "bnm, bnm, ,mnb", zh: "右手 Bottom Row 下排打擊", icon: "🥣" }],
+        stage2: [{ target: "bnm, ,mnb bbnn mm,,", zh: "右手下排熬煮冬蔭功", icon: "🥣" }],
+        stage3: [{ target: "b n m , bnm, ,mnb", zh: "泰式酸辣蝦湯香氣四溢", icon: "🥣" }],
+        speed: [{ target: "bnm, bnm, bnm,", zh: "🔥 極速熬酸辣湯", icon: "⚡" }],
+        perfect: [{ target: "bnm, ,mnb bnm,", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      india: {
+        stage1: [{ target: "qwer asdf zxcv tyui ghjk bnm,", zh: "全鍵盤三排綜合定位", icon: "🍛" }],
+        stage2: [{ target: "qwertyuiop asdfghjkl; zxcvbnm,", zh: "全鍵盤流暢連打揉 Naan 餅", icon: "🍛" }],
+        stage3: [{ target: "qwer asdf zxcv tyui ghjk bnm, all", zh: "亞洲指法大滿貫美味出餐", icon: "🍛" }],
+        speed: [{ target: "qwer asdf zxcv tyui ghjk bnm,", zh: "🔥 印度咖哩極速大滿貫", icon: "⚡" }],
+        perfect: [{ target: "qwertyuiop asdfghjkl; zxcvbnm,", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      uae: {
+        stage1: [{ target: "zxcv zxcv vcxz", zh: "左手 Bottom Row 下排打擊", icon: "🥙" }],
+        stage2: [{ target: "zxcv vcxz zzxx ccvv", zh: "左手下排連打切旋轉羊肉", icon: "🥙" }],
+        stage3: [{ target: "z x c v zxcv vcxz", zh: "香料烤羊肉沙威瑪出餐", icon: "🥙" }],
+        speed: [{ target: "zxcv zxcv zxcv", zh: "🔥 極速片羊肉", icon: "⚡" }],
+        perfect: [{ target: "zxcv vcxz zxcv", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+
+      // 🌍 歐洲 10 國：全鍵盤隨機盲打（由東到西，難度 1 -> 10 階遞進）
+      greece: {
+        stage1: [{ target: "qpm zox wic euv", zh: "第1階：全鍵盤 3 字母跨排隨機小寫", icon: "🥙" }],
+        stage2: [{ target: "rby tnv gmu hki", zh: "全鍵盤無規律跳躍捲餅皮", icon: "🥙" }],
+        stage3: [{ target: "qpm zox wic euv rby tnv", zh: "希臘烤肉捲餅全鍵盤出餐", icon: "🥙" }],
+        speed: [{ target: "qpm zox wic euv rby", zh: "🔥 全鍵盤極速隨機連打", icon: "⚡" }],
+        perfect: [{ target: "qpm zox wic euv rby", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      poland: {
+        stage1: [{ target: "qazp wsxo edci rfvu", zh: "第2階：全鍵盤 4 字母大跨度隨機", icon: "🥟" }],
+        stage2: [{ target: "tgbj yhnm ujik olp;", zh: "無規律四鍵跳躍捏餃子", icon: "🥟" }],
+        stage3: [{ target: "qazp wsxo edci rfvu tgbj", zh: "波蘭傳統餃子全鍵盤上桌", icon: "🥟" }],
+        speed: [{ target: "qazp wsxo edci rfvu", zh: "🔥 四鍵跨排極速連打", icon: "⚡" }],
+        perfect: [{ target: "qazp wsxo edci rfvu", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      sweden: {
+        stage1: [{ target: "tgbnh yjmuk rfved", zh: "第3階：5 字母高頻伸展鍵隨機連打", icon: "🧆" }],
+        stage2: [{ target: "wsxza qazpl okmij", zh: "中軸伸展與邊緣鍵全盤跳躍", icon: "🧆" }],
+        stage3: [{ target: "tgbnh yjmuk rfved wsxza", zh: "瑞典肉丸佐越橘醬出餐", icon: "🧆" }],
+        speed: [{ target: "tgbnh yjmuk rfved", zh: "🔥 五鍵高頻極速連打", icon: "⚡" }],
+        perfect: [{ target: "tgbnh yjmuk rfved", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      germany: {
+        stage1: [{ target: "Qazp Wsxo Edci Rfvu", zh: "第4階：字首 Shift 大寫 + 全鍵盤隨機", icon: "🌭" }],
+        stage2: [{ target: "Tgbh Yjmk Uiol P;za", zh: "左右手 Shift 交替大寫豬腳", icon: "🌭" }],
+        stage3: [{ target: "Qazp Wsxo Edci Rfvu Tgbh", zh: "脆皮德國豬腳大寫連打", icon: "🌭" }],
+        speed: [{ target: "Qazp Wsxo Edci Rfvu", zh: "🔥 字首大寫極速連打", icon: "⚡" }],
+        perfect: [{ target: "Qazp Wsxo Edci Rfvu", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      italy: {
+        stage1: [{ target: "qAzP wSxO eDcI rFvU", zh: "第5階：組內大小寫交錯隨機盲打", icon: "🍕" }],
+        stage2: [{ target: "tGbY hNjM uIkL oP;z", zh: "高頻大小寫切換窯烤披薩", icon: "🍕" }],
+        stage3: [{ target: "qAzP wSxO eDcI rFvU tGbY", zh: "拿坡里披薩交錯節奏出爐", icon: "🍕" }],
+        speed: [{ target: "qAzP wSxO eDcI rFvU", zh: "🔥 大小寫交錯極速連打", icon: "⚡" }],
+        perfect: [{ target: "qAzP wSxO eDcI rFvU", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      switzerland: {
+        stage1: [{ target: "q1az w2sx e3dc r4fv", zh: "第6階：全鍵盤隨機 + 左手數字 1-5", icon: "🧀" }],
+        stage2: [{ target: "t5gb Q1az W2sx E3dc", zh: "數字鍵延伸與大寫混合攪拌", icon: "🧀" }],
+        stage3: [{ target: "q1az w2sx e3dc r4fv t5gb", zh: "瑞士熔岩起司鍋精準出餐", icon: "🧀" }],
+        speed: [{ target: "q1az w2sx e3dc r4fv", zh: "🔥 數字混合極速連打", icon: "⚡" }],
+        perfect: [{ target: "q1az w2sx e3dc r4fv", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      netherlands: {
+        stage1: [{ target: "y6Hn u7Jm i8Ko o9Lp", zh: "第7階：全鍵盤隨機 + 右手數字 6-0", icon: "🧇" }],
+        stage2: [{ target: "p0Za Y6hn U7jm I8ko", zh: "全數字鍵 0-9 與大小寫交錯", icon: "🧇" }],
+        stage3: [{ target: "y6Hn u7Jm i8Ko o9Lp p0Za", zh: "荷蘭焦糖煎餅全數字出餐", icon: "🧇" }],
+        speed: [{ target: "y6Hn u7Jm i8Ko o9Lp", zh: "🔥 右手數字極速連打", icon: "⚡" }],
+        perfect: [{ target: "y6Hn u7Jm i8Ko o9Lp", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      france: {
+        stage1: [{ target: "Qaz, Wsx. Edc! Rfv;", zh: "第8階：全鍵盤隨機 + 標點符號混打", icon: "🥐" }],
+        stage2: [{ target: "Tgb! Yhn, Ujm. Iko;", zh: "大小寫搭配逗號句號驚嘆號", icon: "🥐" }],
+        stage3: [{ target: "Qaz, Wsx. Edc! Rfv; Tgb!", zh: "金黃蜂巢可頌精緻出爐", icon: "🥐" }],
+        speed: [{ target: "Qaz, Wsx. Edc! Rfv;", zh: "🔥 符號混打極速連打", icon: "⚡" }],
+        perfect: [{ target: "Qaz, Wsx. Edc! Rfv;", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      uk: {
+        stage1: [{ target: "P0o9I8u7 Y6t5R4e3", zh: "第9階：8 碼長字串無停頓隨機盲打", icon: "🐟" }],
+        stage2: [{ target: "W2q1!Zax C3v4,Bnm.", zh: "高密度長字串大小寫與符號連打", icon: "🐟" }],
+        stage3: [{ target: "P0o9I8u7 Y6t5R4e3 W2q1!Zax", zh: "英式經典炸魚薯條高難度出餐", icon: "🐟" }],
+        speed: [{ target: "P0o9I8u7 Y6t5R4e3", zh: "🔥 長字串極速盲打", icon: "⚡" }],
+        perfect: [{ target: "P0o9I8u7 Y6t5R4e3", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      spain: {
+        stage1: [{ target: "Z1x!C2v; B3n,M4. A5sD6f", zh: "第10階：歐洲終極大滿貫全鍵盤挑戰", icon: "🥘" }],
+        stage2: [{ target: "G7hJ8kL9 p0!Qaz, Wsx.Edc;", zh: "大小寫+全數字+全符號極限跳躍", icon: "🥘" }],
+        stage3: [{ target: "Z1x!C2v; B3n,M4. A5sD6fG7hJ8kL9p0!", zh: "歐洲全鍵盤盲打大師認證出餐", icon: "🥘" }],
+        speed: [{ target: "Z1x!C2v; B3n,M4. A5sD6f", zh: "🔥 終極密碼級極速大滿貫", icon: "⚡" }],
+        perfect: [{ target: "Z1x!C2v; B3n,M4. A5sD6f", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+
+// ================= 🍁 北美洲 8 國（基礎單字，每國獨立題目） =================
+      canada: {
+        stage1: [{ target: "fries gravy maple", zh: "加拿大普丁薯條基礎單字", icon: "🍟" }],
+        stage2: [{ target: "hot fries with gravy", zh: "淋上濃郁肉汁與起司塊", icon: "🍟" }],
+        stage3: [{ target: "sweet maple syrup fries", zh: "楓糖與肉汁薯條完美出餐", icon: "🍟" }],
+        speed: [{ target: "fries gravy maple", zh: "🔥 薯條極速單字連打", icon: "⚡" }],
+        perfect: [{ target: "fries gravy maple", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      usa: {
+        stage1: [{ target: "burger cheese beef", zh: "美式漢堡基礎單字", icon: "🍔" }],
+        stage2: [{ target: "fresh beef burger cheese", zh: "雙層牛肉起司漢堡連打", icon: "🍔" }],
+        stage3: [{ target: "juicy burger with bacon", zh: "美式經典雙層漢堡出餐", icon: "🍔" }],
+        speed: [{ target: "burger cheese beef", zh: "🔥 美式漢堡極速單字", icon: "⚡" }],
+        perfect: [{ target: "burger cheese beef", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      mexico: {
+        stage1: [{ target: "taco salsa corn", zh: "墨西哥塔可基礎單字", icon: "🌮" }],
+        stage2: [{ target: "spicy taco with salsa", zh: "香辣莎莎醬塔可單字", icon: "🌮" }],
+        stage3: [{ target: "fresh lime corn taco", zh: "道地墨西哥塔可出餐", icon: "🌮" }],
+        speed: [{ target: "taco salsa corn", zh: "🔥 塔可極速單字連打", icon: "⚡" }],
+        perfect: [{ target: "taco salsa corn", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      belize: {
+        stage1: [{ target: "pie meat oven", zh: "貝里斯肉派基礎單字", icon: "🥧" }],
+        stage2: [{ target: "baked meat pie crust", zh: "金黃酥脆燉肉派單字", icon: "🥧" }],
+        stage3: [{ target: "warm spicy meat pie", zh: "貝里斯國民肉派小吃出餐", icon: "🥧" }],
+        speed: [{ target: "pie meat oven", zh: "🔥 肉派極速單字連打", icon: "⚡" }],
+        perfect: [{ target: "pie meat oven", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      costa_rica: {
+        stage1: [{ target: "rice beans fruit", zh: "哥斯達黎加黑豆飯單字", icon: "🍛" }],
+        stage2: [{ target: "black beans and rice", zh: "經典香料黑豆炒飯單字", icon: "🍛" }],
+        stage3: [{ target: "sweet mango rice bowl", zh: "營養滿分黑豆香米飯出餐", icon: "🍛" }],
+        speed: [{ target: "rice beans fruit", zh: "🔥 黑豆飯極速單字連打", icon: "⚡" }],
+        perfect: [{ target: "rice beans fruit", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      panama: {
+        stage1: [{ target: "soup fish fresh", zh: "巴拿馬海鮮湯基礎單字", icon: "🍲" }],
+        stage2: [{ target: "fresh fish seafood soup", zh: "運河新鮮海產熬煮濃湯", icon: "🍲" }],
+        stage3: [{ target: "hot shrimp fish stew", zh: "巴拿馬海鮮大燴湯出餐", icon: "🍲" }],
+        speed: [{ target: "soup fish fresh", zh: "🔥 海鮮湯極速單字連打", icon: "⚡" }],
+        perfect: [{ target: "soup fish fresh", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      cuba: {
+        stage1: [{ target: "pork bread toast", zh: "古巴三明治基礎單字", icon: "🥪" }],
+        stage2: [{ target: "roast pork ham toast", zh: "酸黃瓜起司烤豬肉單字", icon: "🥪" }],
+        stage3: [{ target: "crispy cuban pork bread", zh: "哈瓦那熱壓三明治出餐", icon: "🥪" }],
+        speed: [{ target: "pork bread toast", zh: "🔥 三明治極速單字連打", icon: "⚡" }],
+        perfect: [{ target: "pork bread toast", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      dominican: {
+        stage1: [{ target: "sweet garlic mash", zh: "多明尼加蒜香芭蕉單字", icon: "🍌" }],
+        stage2: [{ target: "fried plantain garlic mash", zh: "炸芭蕉搗泥佐蒜香醬", icon: "🍌" }],
+        stage3: [{ target: "crispy bacon garlic mash", zh: "多明尼加蒜香芭蕉泥出餐", icon: "🍌" }],
+        speed: [{ target: "sweet garlic mash", zh: "🔥 芭蕉泥極速單字連打", icon: "⚡" }],
+        perfect: [{ target: "sweet garlic mash", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+
+      // ================= 🦙 南美洲 12 國（進階長單字，每國獨立題目） =================
+      colombia: {
+        stage1: [{ target: "breakfast kitchen cheese", zh: "哥倫比亞起司餅長單字", icon: "🫓" }],
+        stage2: [{ target: "delicious mozzarella cornmeal", zh: "拉絲起司玉米餅長單字", icon: "🫓" }],
+        stage3: [{ target: "colombian breakfast cheese", zh: "哥倫比亞香煎起司餅出餐", icon: "🫓" }],
+        speed: [{ target: "breakfast kitchen cheese", zh: "🔥 起司餅極速長單字", icon: "⚡" }],
+        perfect: [{ target: "breakfast kitchen cheese", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      venezuela: {
+        stage1: [{ target: "shredded avocado sandwich", zh: "委內瑞拉玉米餅長單字", icon: "🫓" }],
+        stage2: [{ target: "venezuelan cornbread platter", zh: "手撕牛肉與酪梨長單字", icon: "🫓" }],
+        stage3: [{ target: "delicious shredded beef", zh: "委內瑞拉玉米餅夾絲肉出餐", icon: "🫓" }],
+        speed: [{ target: "shredded avocado sandwich", zh: "🔥 玉米餅極速長單字", icon: "⚡" }],
+        perfect: [{ target: "shredded avocado sandwich", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      guyana: {
+        stage1: [{ target: "tropical cinnamon pepper", zh: "蓋亞那胡椒燉肉長單字", icon: "🥘" }],
+        stage2: [{ target: "caribbean seasoning stew", zh: "加勒比香料燉肉長單字", icon: "🥘" }],
+        stage3: [{ target: "traditional cinnamon pepper", zh: "蓋亞那節慶胡椒燉肉出餐", icon: "🥘" }],
+        speed: [{ target: "tropical cinnamon pepper", zh: "🔥 燉肉極速長單字", icon: "⚡" }],
+        perfect: [{ target: "tropical cinnamon pepper", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      suriname: {
+        stage1: [{ target: "peanut plantain delicious", zh: "蘇利南花生芭蕉湯長單字", icon: "🍜" }],
+        stage2: [{ target: "aromatic peanut dumpling", zh: "濃郁花生醬香料長單字", icon: "🍜" }],
+        stage3: [{ target: "delicious plantain soup", zh: "蘇利南花生醬芭蕉湯出餐", icon: "🍜" }],
+        speed: [{ target: "peanut plantain delicious", zh: "🔥 花生湯極速長單字", icon: "⚡" }],
+        perfect: [{ target: "peanut plantain delicious", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      ecuador: {
+        stage1: [{ target: "tropical cocktail shrimp", zh: "厄瓜多鮮蝦雞尾酒長單字", icon: "🦐" }],
+        stage2: [{ target: "refreshing citrus marinade", zh: "茄汁檸檬鮮蝦涼拌長單字", icon: "🦐" }],
+        stage3: [{ target: "ecuadorian shrimp cocktail", zh: "赤道鮮蝦雞尾酒出餐", icon: "🦐" }],
+        speed: [{ target: "tropical cocktail shrimp", zh: "🔥 鮮蝦杯極速長單字", icon: "⚡" }],
+        perfect: [{ target: "tropical cocktail shrimp", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      peru: {
+        stage1: [{ target: "pineapple seafood lemon", zh: "秘魯檸檬醃生魚長單字", icon: "🥗" }],
+        stage2: [{ target: "peruvian ceviche coriander", zh: "檸檬汁醃製鮮魚佐紫洋蔥", icon: "🥗" }],
+        stage3: [{ target: "refreshing seafood lemon", zh: "秘魯經典檸檬生汁醃魚出餐", icon: "🥗" }],
+        speed: [{ target: "pineapple seafood lemon", zh: "🔥 醃生魚極速長單字", icon: "⚡" }],
+        perfect: [{ target: "pineapple seafood lemon", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      bolivia: {
+        stage1: [{ target: "vegetable potatoes cooking", zh: "玻利維亞高山燉肉長單字", icon: "🍲" }],
+        stage2: [{ target: "bolivian highland casserole", zh: "高原馬鈴薯牛肉慢燉長單字", icon: "🍲" }],
+        stage3: [{ target: "nourishing vegetable stew", zh: "玻利維亞高山燉肉湯出餐", icon: "🍲" }],
+        speed: [{ target: "vegetable potatoes cooking", zh: "🔥 高山湯極速長單字", icon: "⚡" }],
+        perfect: [{ target: "vegetable potatoes cooking", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      brazil: {
+        stage1: [{ target: "barbecue delicious steak", zh: "巴西窯烤牛排長單字", icon: "🥩" }],
+        stage2: [{ target: "traditional brazilian barbecue", zh: "粗鹽炭火慢烤頂級牛肉", icon: "🥩" }],
+        stage3: [{ target: "delicious roasted picanha", zh: "桑巴巴西窯烤盛宴出餐", icon: "🥩" }],
+        speed: [{ target: "barbecue delicious steak", zh: "🔥 巴西窯烤極速長單字", icon: "⚡" }],
+        perfect: [{ target: "barbecue delicious steak", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      paraguay: {
+        stage1: [{ target: "bakery homemade cheese", zh: "巴拉圭起司麵包長單字", icon: "🧀" }],
+        stage2: [{ target: "paraguayan cassava pastry", zh: "木薯粉烘烤香Q起司麵包", icon: "🧀" }],
+        stage3: [{ target: "homemade warm cheese", zh: "巴拉圭帕瑪起司麵包出餐", icon: "🧀" }],
+        speed: [{ target: "bakery homemade cheese", zh: "🔥 起司包極速長單字", icon: "⚡" }],
+        perfect: [{ target: "bakery homemade cheese", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      uruguay: {
+        stage1: [{ target: "sandwich hamburger gourmet", zh: "烏拉圭巨無霸堡長單字", icon: "🥪" }],
+        stage2: [{ target: "uruguayan steakhouse platter", zh: "牛排火腿起司多層次三明治", icon: "🥪" }],
+        stage3: [{ target: "gourmet chivito sandwich", zh: "烏拉圭巨無霸豪華堡出餐", icon: "🥪" }],
+        speed: [{ target: "sandwich hamburger gourmet", zh: "🔥 巨無霸堡極速長單字", icon: "⚡" }],
+        perfect: [{ target: "sandwich hamburger gourmet", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      chile: {
+        stage1: [{ target: "chocolate traditional recipe", zh: "智利牛肉烤包長單字", icon: "🥟" }],
+        stage2: [{ target: "chilean empanada pastry", zh: "牛肉洋蔥橄欖金黃烤餅包", icon: "🥟" }],
+        stage3: [{ target: "traditional baked recipe", zh: "智利經典牛肉烤包出餐", icon: "🥟" }],
+        speed: [{ target: "chocolate traditional recipe", zh: "🔥 牛肉烤包極速長單字", icon: "⚡" }],
+        perfect: [{ target: "chocolate traditional recipe", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      argentina: {
+        stage1: [{ target: "restaurant roasted dinner", zh: "阿根廷炭烤牛排長單字", icon: "🥩" }],
+        stage2: [{ target: "argentinian chimichurri steak", zh: "青醬佐豪氣原塊炭烤牛排", icon: "🥩" }],
+        stage3: [{ target: "delicious roasted dinner", zh: "阿根廷頂級炭烤大牛排出餐", icon: "🥩" }],
+        speed: [{ target: "restaurant roasted dinner", zh: "🔥 阿根廷牛排極速長單字", icon: "⚡" }],
+        perfect: [{ target: "restaurant roasted dinner", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+
+      // ================= 🌍 非洲 5 國（實用短句，每國獨立題目） =================
+      senegal: {
+        stage1: [{ target: "Enjoy your meal!", zh: "塞內加爾魚香飯短句練習", icon: "🍛" }],
+        stage2: [{ target: "Taste the spiced fish!", zh: "西非番茄香料燉鮮魚短句", icon: "🍛" }],
+        stage3: [{ target: "Welcome to Dakar!", zh: "塞內加爾魚香飯盛宴出餐", icon: "🍛" }],
+        speed: [{ target: "Enjoy your meal!", zh: "🔥 魚香飯短句極速連打", icon: "⚡" }],
+        perfect: [{ target: "Enjoy your meal!", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      morocco: {
+        stage1: [{ target: "Hot tagine is ready!", zh: "摩洛哥塔吉鍋短句練習", icon: "🍲" }],
+        stage2: [{ target: "Smell the sweet spices!", zh: "陶土塔吉鍋慢火悶燉羊肉", icon: "🍲" }],
+        stage3: [{ target: "Mint tea is very good!", zh: "摩洛哥塔吉鍋燉肉出餐", icon: "🍲" }],
+        speed: [{ target: "Hot tagine is ready!", zh: "🔥 塔吉鍋短句極速連打", icon: "⚡" }],
+        perfect: [{ target: "Hot tagine is ready!", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      egypt: {
+        stage1: [{ target: "Welcome to Egypt!", zh: "埃及庫沙利短句練習", icon: "🍲" }],
+        stage2: [{ target: "Try the spicy sauce!", zh: "庫沙利鷹嘴豆飯短句", icon: "🍲" }],
+        stage3: [{ target: "Cairo food is great!", zh: "埃及美食盛宴短句出餐", icon: "🍲" }],
+        speed: [{ target: "Welcome to Egypt!", zh: "🔥 埃及短句極速連打", icon: "⚡" }],
+        perfect: [{ target: "Welcome to Egypt!", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      kenya: {
+        stage1: [{ target: "Fresh coffee is hot!", zh: "肯亞烤肉咖啡短句練習", icon: "🥩" }],
+        stage2: [{ target: "Try Kenyan roast meat!", zh: "豪氣炭火烤肉配辣椒醬", icon: "🥩" }],
+        stage3: [{ target: "Safari dinner is fun!", zh: "肯亞炭火烤肉宴出餐", icon: "🥩" }],
+        speed: [{ target: "Fresh coffee is hot!", zh: "🔥 肯亞短句極速連打", icon: "⚡" }],
+        perfect: [{ target: "Fresh coffee is hot!", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      madagascar: {
+        stage1: [{ target: "Sweet vanilla island!", zh: "馬達加斯加香米飯短句", icon: "🍚" }],
+        stage2: [{ target: "Taste the island beef!", zh: "島嶼特色瘤牛肉燉香米飯", icon: "🍚" }],
+        stage3: [{ target: "Warm rice smells nice!", zh: "馬達加斯加瘤牛飯出餐", icon: "🍚" }],
+        speed: [{ target: "Sweet vanilla island!", zh: "🔥 島嶼短句極速連打", icon: "⚡" }],
+        perfect: [{ target: "Sweet vanilla island!", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      south_africa: {
+        stage1: [{ target: "Taste the barbecue!", zh: "南非農夫香腸短句練習", icon: "🌭" }],
+        stage2: [{ target: "Grill the spicy sausage!", zh: "香料粗肉香腸炭火烤至外脆", icon: "🌭" }],
+        stage3: [{ target: "Cape Town feast begins!", zh: "南非農夫香腸盛宴出餐", icon: "🌭" }],
+        speed: [{ target: "Taste the barbecue!", zh: "🔥 南非短句極速連打", icon: "⚡" }],
+        perfect: [{ target: "Taste the barbecue!", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+
+      // ================= 🌏 大洋洲 5 國（經典長句，每國獨立題目） =================
+      palau: {
+        stage1: [{ target: "Try the sweet coconut taro soup today!", zh: "帛琉椰香芋頭湯長句練習", icon: "🥣" }],
+        stage2: [{ target: "Palau serves warm taro soup with rich coconut milk!", zh: "濃郁椰奶慢燉熱帶芋頭濃湯", icon: "🥣" }],
+        stage3: [{ target: "Enjoy this tropical island soup by the blue ocean!", zh: "帛琉椰香芋頭湯盛宴出餐", icon: "🥣" }],
+        speed: [{ target: "Try the sweet coconut taro soup today!", zh: "🔥 帛琉長句極速連打", icon: "⚡" }],
+        perfect: [{ target: "Try the sweet coconut taro soup today!", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      australia: {
+        stage1: [{ target: "Australia serves hot beef pie.", zh: "澳洲肉汁牛肉派長句練習", icon: "🥧" }],
+        stage2: [{ target: "Enjoy the delicious australian beef pie today!", zh: "金黃酥皮包裹濃郁燉牛肉醬汁", icon: "🥧" }],
+        stage3: [{ target: "Welcome to Sydney and try the best meat pie ever!", zh: "澳洲傳統牛肉派終極長句", icon: "🥧" }],
+        speed: [{ target: "Australia serves hot beef pie.", zh: "🔥 澳洲長句極速連打", icon: "⚡" }],
+        perfect: [{ target: "Australia serves hot beef pie.", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      fiji: {
+        stage1: [{ target: "Fresh fish with coconut milk is perfect.", zh: "斐濟椰汁醃鮮魚長句練習", icon: "🐟" }],
+        stage2: [{ target: "Fiji cooks fresh ocean fish with lime and coconut!", zh: "新鮮生魚片浸泡椰奶與檸檬汁", icon: "🐟" }],
+        stage3: [{ target: "Taste the refreshing island seafood dish in Fiji!", zh: "斐濟椰汁醃鮮魚盛宴出餐", icon: "🐟" }],
+        speed: [{ target: "Fresh fish with coconut milk is perfect.", zh: "🔥 斐濟長句極速連打", icon: "⚡" }],
+        perfect: [{ target: "Fresh fish with coconut milk is perfect.", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      samoa: {
+        stage1: [{ target: "Congratulations! You are the Typing Master!", zh: "薩摩亞地爐烤豬肉長句練習", icon: "🐷" }],
+        stage2: [{ target: "Samoa roasts tender pork over hot volcanic stones!", zh: "傳統地爐石頭慢火炭烤香嫩豚肉", icon: "🐷" }],
+        stage3: [{ target: "Celebrate your typing journey with a Samoan feast!", zh: "薩摩亞地爐烤豬肉盛宴出餐", icon: "🐷" }],
+        speed: [{ target: "Congratulations! You are the Typing Master!", zh: "🔥 薩摩亞長句極速連打", icon: "⚡" }],
+        perfect: [{ target: "Congratulations! You are the Typing Master!", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      },
+      new_zealand: {
+        stage1: [{ target: "New Zealand kiwi dessert is great!", zh: "紐西蘭帕洛娃蛋白霜餅長句", icon: "🍰" }],
+        stage2: [{ target: "Sweet pavlova cake topped with fresh green kiwi!", zh: "外酥內軟蛋白霜餅鋪滿奇異果奶油", icon: "🍰" }],
+        stage3: [{ target: "You have completed the global food typing adventure!", zh: "環球美食盲打終極大滿貫出餐", icon: "🍰" }],
+        speed: [{ target: "New Zealand kiwi dessert is great!", zh: "🔥 紐西蘭長句極速連打", icon: "⚡" }],
+        perfect: [{ target: "New Zealand kiwi dessert is great!", zh: "💣 0 錯字防炸彈考驗", icon: "🎯" }]
+      }
+    };    // 🏆 10 個抽象好笑 + 諧音梗成就徽章
+    const badgesData = [
+      { id: 'badge_smoke', name: '⌨️ 鍵盤冒煙俠', icon: '⌨️', desc: '單局 WPM 突破 55（鍵盤軸體正在申請職災賠償）', unlocked: false },
+      { id: 'badge_single20', name: '💨 單身二十年的手速', icon: '💨', desc: '在「美食暴走 Fever」剩餘超過 5 秒的情況下通關', unlocked: false },
+      { id: 'badge_whip5', name: '⚡ 閃電五連鞭', icon: '⚡', desc: '累計通過 5 個國家的「美食暴走 Fever」副本', unlocked: false },
+      { id: 'badge_hsr', name: '🚀 趕高鐵的台灣人', icon: '🚀', desc: '單局最高連擊 Combo 突破 45 鍵不中斷', unlocked: false },
+      { id: 'badge_bomb_expert', name: '💣 拆彈專家不拆台', icon: '💣', desc: '累計通過 5 次「廚房炸彈菜單」0 錯字副本', unlocked: false },
+      { id: 'badge_monk', name: '🧘 心如止水老僧', icon: '🧘', desc: '單局保持 0 錯字通關任何一個國家關卡', unlocked: false },
+      { id: 'badge_chopsticks', name: '🥢 夾菜不掉豆', icon: '🥢', desc: '累計通關 10 個國家（精準度堪比夾起花生米）', unlocked: false },
+      { id: 'badge_boom_art', name: '💥 廚房爆破藝術家', icon: '💥', desc: '在「廚房炸彈菜單」不小心按錯鍵炸掉廚房（藝術就是爆炸！）', unlocked: false },
+      { id: 'badge_chicken', name: '🐔 咕咕雞鍵盤啄米', icon: '🐔', desc: '單局按錯字超過 10 次但最後還是硬撐過關', unlocked: false },
+      { id: 'badge_foodie50', name: '🌍 環球大胃王', icon: '🌍', desc: '解鎖全部 50 個國家的護照國旗印章', unlocked: false }
+    ];
+
+    let userProgress = { taiwan: {} };
+    let totalMilesKm = 0;
+    let maxWpmRecord = 0;
+    let maxComboInSession = 0;
+    let currentSelectedCountry = worldData[0];
+    let currentModeKey = 'stage1';
+    let currentContinentKey = 'world';
+    let americasSubRegion = 'north'; // 'north' (北美洲) | 'south' (南美洲)
+    let currentList = [];
+    let currentIndex = 0;
+    let timerInterval = null;
+    let autoNextInterval = null;
+    let startTime = 0;
+    let elapsedTime = 0;
+    let errorCount = 0;
+    let comboCount = 0;
+    let svg, g, flightG, projection;
+    let currentTx = 0, currentTy = 0, currentK = 1;
+    let selectedCharId = null;
+    let pendingCrossContinentFlight = null;
+let travelNotes = {}; // 儲存玩家在各國寫下的手札備註 { taiwan: "F和J越打越順了！" }
+    let currentNotebookFilter = 'all';
+    let currentLeaderboardTab = 'miles';
+    let cachedLeaderboardPlayers = [];
+
+    // 隨機突發事件狀態
+    let currentRandomEvent = null; // null | 'freeze' | 'vip'
+    let frozenIndices = new Set(); // 紀錄需要按 2 下的結冰字元位置
+    let stagePlayCounter = 0;
+
+    const SPEED_MODE_TIME_LIMIT = 12; 
+    let timeRemaining = SPEED_MODE_TIME_LIMIT;
+
+    function getBase64Image(imgEl) {
+      if (!imgEl || !imgEl.src) return "";
+      try {
+        var canvas = document.createElement("canvas");
+        canvas.width = imgEl.naturalWidth || imgEl.width || 100;
+        canvas.height = imgEl.naturalHeight || imgEl.height || 100;
+        var ctx = canvas.getContext("2d");
+        ctx.drawImage(imgEl, 0, 0);
+        return canvas.toDataURL("image/png");
+      } catch (e) {
+        return imgEl.src;
+      }
+    }
+
+    function saveGame() {
+      if (!currentUsername) {
+        const inputName = prompt("請輸入您的玩家帳號/暱稱（用於雲端存檔與跨裝置同步）：");
+        if (inputName && inputName.trim() !== "") {
+          currentUsername = inputName.trim();
+          localStorage.setItem('typingGameUsername', currentUsername);
+        } else {
+          return;
+        }
+      }
+
+      const gameState = {
+        username: currentUsername,
+        userProgress: userProgress,
+        badgesData: badgesData,
+        selectedCharId: selectedCharId,
+        totalMilesKm: totalMilesKm,
+        maxWpmRecord: maxWpmRecord,
+        travelNotes: travelNotes
+      };
+      localStorage.setItem('typingGameData', JSON.stringify(gameState));
+
+      // 同步寫入本地全玩家排行榜快取（支援同裝置多帳號切磋與即時排名）
+      const allLocalPlayers = JSON.parse(localStorage.getItem('typingGameAllPlayers') || '{}');
+      const clearedCount = worldData.filter(x => {
+        const p = userProgress[x.id] || {};
+        return p.stage1 && p.stage2 && p.stage3;
+      }).length;
+      allLocalPlayers[currentUsername] = {
+        username: currentUsername,
+        totalMilesKm: totalMilesKm,
+        maxWpmRecord: maxWpmRecord,
+        clearedCountries: clearedCount,
+        charId: selectedCharId ?? 0
+      };
+      localStorage.setItem('typingGameAllPlayers', JSON.stringify(allLocalPlayers));
+
+      const avatarEl = document.getElementById('headerAvatarSprite');
+      const avatarBase64 = getBase64Image(avatarEl);
+
+      const payload = {
+        username: currentUsername,
+        selectedCharId: selectedCharId,
+        avatarBase64: avatarBase64,
+        userProgress: userProgress,
+        badgesData: badgesData,
+        totalMilesKm: totalMilesKm,
+        maxWpmRecord: maxWpmRecord
+      };
+
+      fetch(GAS_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).catch(err => console.error("雲端儲存失敗:", err));
+    }
+
+    function loadGame() {
+      const savedData = localStorage.getItem('typingGameData');
+      if (savedData) {
+        try {
+          const gameState = JSON.parse(savedData);
+          if (gameState.userProgress) userProgress = gameState.userProgress;
+          if (typeof gameState.totalMilesKm === 'number') totalMilesKm = gameState.totalMilesKm;
+          if (typeof gameState.maxWpmRecord === 'number') maxWpmRecord = gameState.maxWpmRecord;
+if (gameState.travelNotes) travelNotes = gameState.travelNotes;
+          if (gameState.badgesData) {
+            gameState.badgesData.forEach(savedBadge => {
+              const b = badgesData.find(item => item.id === savedBadge.id);
+              if (b) b.unlocked = savedBadge.unlocked;
+            });
+          }
+          if (gameState.selectedCharId !== null && gameState.selectedCharId !== undefined) {
+            applyCharacter(gameState.selectedCharId);
+          }
+        } catch (e) {
+          console.error("本地讀取失敗:", e);
+        }
+      }
+
+      // 若舊存檔已有通關國家但里程為 0，自動補發基礎里程
+      const clearedCountriesCount = worldData.filter(x => {
+        const p = userProgress[x.id] || {};
+        return p.stage1 && p.stage2 && p.stage3;
+      }).length;
+      if (totalMilesKm === 0 && clearedCountriesCount > 0) {
+        totalMilesKm = clearedCountriesCount * 1250;
+      }
+
+      if (currentUsername) {
+        fetch(`${GAS_URL}?username=${encodeURIComponent(currentUsername)}`)
+          .then(res => res.json())
+          .then(resData => {
+            if (resData.status === 'success' && resData.data) {
+              const cloudData = resData.data;
+              userProgress = cloudData.userProgress || userProgress;
+              if (cloudData.totalMilesKm) totalMilesKm = Math.max(totalMilesKm, Number(cloudData.totalMilesKm) || 0);
+              if (cloudData.maxWpmRecord) maxWpmRecord = Math.max(maxWpmRecord, Number(cloudData.maxWpmRecord) || 0);
+              
+              if (cloudData.badgesData) {
+                cloudData.badgesData.forEach(savedBadge => {
+                  const b = badgesData.find(item => item.id === savedBadge.id);
+                  if (b) b.unlocked = savedBadge.unlocked;
+                });
+              }
+
+              if (cloudData.selectedCharId !== undefined && cloudData.selectedCharId !== "") {
+                applyCharacter(cloudData.selectedCharId);
+              }
+              
+              renderCountryPins();
+              updateHeaderStats();
+            }
+          })
+          .catch(err => console.log("雲端連線失敗，優先使用本地紀錄:", err));
+      }
+    }
+
+    function applyCharacter(charId) {
+      selectedCharId = charId;
+      const char = charactersList[selectedCharId];
+      if (char) {
+        document.getElementById('headerAvatarSprite').src = char.file;
+        document.getElementById('guideAvatarSprite').src = char.file;
+        document.getElementById('pilotHeaderName').innerText = `${char.name} (${currentUsername || '陪同飛行員'})`;
+        document.getElementById('guidePilotTitle').innerText = `陪同飛行員：${char.name}`;
+        document.getElementById('charSelectModal').style.display = 'none';
+      }
+    }
+
+    function changeUser() {
+      const name = prompt("請輸入要切換的玩家帳號：", currentUsername);
+      if (name && name.trim() !== "") {
+        currentUsername = name.trim();
+        localStorage.setItem('typingGameUsername', currentUsername);
+        loadGame();
+        alert(`已切換帳號為：${currentUsername}`);
+      }
+    }
+
+    function resetGame() {
+      if (confirm("⚠️ 確定要刪除所有通關紀錄、里程與徽章嗎？此動作無法復原。")) {
+        localStorage.removeItem('typingGameData');
+        localStorage.removeItem('typingGameUsername');
+        location.reload();
+      }
+    }
+
+    function initCharacterSelection() {
+      const grid = document.getElementById('charGrid');
+      grid.innerHTML = '';
+
+      charactersList.forEach((char, idx) => {
+        const card = document.createElement('div');
+        card.className = 'char-card';
+        card.id = `char-card-${idx}`;
+        card.onclick = () => selectChar(idx);
+
+        card.innerHTML = `
+          <img class="char-card-img" src="${char.file}" alt="${char.name}" />
+          <div style="font-size:10px; font-weight:bold; color:var(--navy);">${char.name}</div>
+        `;
+        grid.appendChild(card);
+      });
+    }
+
+    function selectChar(idx) {
+      selectedCharId = idx;
+      document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
+      document.getElementById(`char-card-${idx}`).classList.add('selected');
+
+      const btn = document.getElementById('confirmCharBtn');
+      btn.disabled = false;
+      btn.style.opacity = '1';
+    }
+
+    function confirmCharacterSelection() {
+      if (selectedCharId === null) return;
+      applyCharacter(selectedCharId);
+      updatePilotGuide("歡迎登機！請點擊【台灣】或上方【大洲導航】開始第一站的珍奶搖搖節奏廚房吧！");
+      saveGame();
+    }
+
+    function updatePilotGuide(msg) {
+      const el = document.getElementById('guideDialogText');
+      if (el) el.innerText = msg;
+    }
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playErrorSound() {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(140, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+    }
+
+    function playKeySound() {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440 + Math.min(400, comboCount * 8), audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(); osc.stop(audioCtx.currentTime + 0.08);
+    }
+
+    function initMap() {
+      const container = document.getElementById('mapContainer');
+      const width = container.clientWidth, height = container.clientHeight;
+      svg = d3.select("#worldMapSvg").attr("viewBox", `0 0 ${width} ${height}`);
+      g = d3.select("#mapGroup");
+      flightG = d3.select("#flightRoutesGroup");
+
+      projection = d3.geoEquirectangular().scale(width / 6.2).translate([width / 2, height / 2 + 30]);
+      const pathGenerator = d3.geoPath().projection(projection);
+
+      d3.json("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json").then(data => {
+        const countries = topojson.feature(data, data.objects.countries);
+        g.selectAll("path").data(countries.features).enter().append("path").attr("class", "country-shape").attr("d", pathGenerator);
+        renderCountryPins();
+      });
+      // 美洲地圖滑鼠滾輪上下滾動查看（綁定一次，嚴格同步地圖與國家標誌座標，並完整支援滑到南美洲最南端）
+      if (!container.dataset.wheelBound) {
+        container.dataset.wheelBound = 'true';
+        container.addEventListener('wheel', (e) => {
+          if (currentContinentKey !== 'americas') return;
+          e.preventDefault();
+
+          // 立即停止尚未結束的切換動畫，確保地圖 <g> 與圖標座標 100% 同步不飄移
+          g.interrupt();
+          flightG.interrupt();
+          if (window.activeMapTimer) {
+            window.activeMapTimer.stop();
+            window.activeMapTimer = null;
+          }
+
+          const curH = container.clientHeight;
+          const northEdgeY = projection([-95, 72])[1];
+          // 延伸到南緯 -68 度並預留 180px 底部空間，確保阿根廷(-38.4)與智利(-35.6)都能輕鬆滑到畫面中央
+          const southEdgeY = projection([-68, -68])[1];
+
+          const maxTy = 90 - northEdgeY * currentK;
+          const minTy = (curH - 180) - southEdgeY * currentK;
+
+          currentTy = Math.max(minTy, Math.min(maxTy, currentTy - e.deltaY * 1.2));
+
+          g.attr("transform", `translate(${currentTx},${currentTy}) scale(${currentK})`);
+          flightG.attr("transform", `translate(${currentTx},${currentTy}) scale(${currentK})`);
+          updatePinPositions(currentTx, currentTy, currentK);
+        }, { passive: false });
+      }
+    }    
+// 計算某大洲獲得的副本星數（speed + perfect）
+    function getContinentBonusStars(continentKey) {
+      let stars = 0;
+      worldData.filter(c => c.continent === continentKey).forEach(c => {
+        const p = userProgress[c.id] || {};
+        if (p.speed) stars++;
+        if (p.perfect) stars++;
+      });
+      return stars;
+    }
+
+    function getTotalBonusStars() {
+      let stars = 0;
+      worldData.forEach(c => {
+        const p = userProgress[c.id] || {};
+        if (p.speed) stars++;
+        if (p.perfect) stars++;
+      });
+      return stars;
+    }
+
+    const continentChineseNames = {
+      asia: '亞洲',
+      europe: '歐洲',
+      americas: '美洲',
+      africa: '非洲',
+      oceania: '大洋洲'
+    };
+
+    // 統一檢查跨洲副本星門檻：需在當前大洲收集至少 3 顆副本星才能前往下一洲
+    function checkCrossContinentGate(fromContinent, toContinent) {
+      if (!fromContinent || fromContinent === toContinent) return { allowed: true };
+      const requiredStars = 3;
+      const currentStars = getContinentBonusStars(fromContinent);
+      if (currentStars < requiredStars) {
+        return {
+          allowed: false,
+          fromName: continentChineseNames[fromContinent] || fromContinent,
+          toName: continentChineseNames[toContinent] || toContinent,
+          currentStars,
+          requiredStars
+        };
+      }
+      return { allowed: true };
+    }
+    // 飛機圖示隨開航國家數量進化
+    function getEvolvedPlaneEmoji() {
+      const stars = getTotalBonusStars();
+      if (stars >= 15) return '🛫';
+      if (stars >= 8) return '✈️';
+      if (stars >= 3) return '✈️';
+      return '🛩️';
+    }
+
+    function renderFlightRoutes() {
+      flightG.selectAll("*").remove();
+
+      if (currentContinentKey === 'world') {
+        const hubCountries = worldData.filter(c => c.mainHub);
+        for (let i = 0; i < hubCountries.length - 1; i++) {
+          const c1 = hubCountries[i];
+          const c2 = hubCountries[i + 1];
+
+          const p1 = projection([c1.lon, c1.lat]);
+          const p2 = projection([c2.lon, c2.lat]);
+
+          if (p1 && p2) {
+            const dx = p2[0] - p1[0];
+            const dy = p2[1] - p1[1];
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const dr = dist * 1.5;
+            // 往南半球飛（如美洲➔非洲、非洲➔大洋洲）改用 sweepFlag=0 向下彎曲，與上方歐美航線完全拉開區別
+            const sweepFlag = (c2.continent === 'africa' || c2.continent === 'oceania') ? 0 : 1;
+            const pathD = `M ${p1[0]} ${p1[1]} A ${dr} ${dr} 0 0 ${sweepFlag} ${p2[0]} ${p2[1]}`;
+
+            flightG.append("path")
+              .attr("d", pathD)
+              .attr("class", "flight-line-hub");
+          }
+        }
+
+        const uaeProg = userProgress['uae'] || {};
+              } else {
+        const currentContinentCountries = worldData.filter(c => c.continent === currentContinentKey);
+
+        for (let i = 0; i < currentContinentCountries.length - 1; i++) {
+          const c1 = currentContinentCountries[i];
+          const c2 = currentContinentCountries[i + 1];
+
+          const prog1 = userProgress[c1.id] || {};
+          const c1Cleared = prog1.stage1 && prog1.stage2 && prog1.stage3;
+
+          const p1 = projection([c1.lon, c1.lat]);
+          const p2 = projection([c2.lon, c2.lat]);
+
+          if (p1 && p2) {
+            const dx = p2[0] - p1[0];
+            const dy = p2[1] - p1[1];
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const dr = dist * 1.6;
+            const pathD = `M ${p1[0]} ${p1[1]} A ${dr} ${dr} 0 0 1 ${p2[0]} ${p2[1]}`;
+
+            flightG.append("path")
+              .attr("d", pathD)
+              .attr("class", c1Cleared ? "flight-line-active" : "flight-line-locked");
+          }
+        }
+      }
+    }
+
+    function renderCountryPins() {
+      const pinLayer = document.getElementById('pinLayer');
+      pinLayer.innerHTML = '';
+
+      const activeUncompletedIndex = worldData.findIndex(c => {
+        const prog = userProgress[c.id] || {};
+        return !(prog.stage1 && prog.stage2 && prog.stage3);
+      });
+
+      const currentPlaneIcon = getEvolvedPlaneEmoji();
+
+      worldData.forEach((c, idx) => {
+        let isVisibleInCurrentView = false;
+        if (currentContinentKey === 'world') {
+          isVisibleInCurrentView = c.mainHub;
+        }else if (currentContinentKey === 'americas') {
+          const targetWordType = (americasSubRegion === 'north') ? 'short' : 'long';
+          isVisibleInCurrentView = (c.continent === 'americas' && c.wordType === targetWordType);
+        } else {
+          isVisibleInCurrentView = (c.continent === currentContinentKey);
+        }
+
+        if (!isVisibleInCurrentView) return;
+
+        const flagUrl = `https://flagcdn.com/w80/${c.code}.png`;
+        const prog = userProgress[c.id] || {};
+        const mainCleared = prog.stage1 && prog.stage2 && prog.stage3;
+        const allCleared = mainCleared && prog.speed && prog.perfect;
+
+        let isPlayable = false;
+        if (mainCleared) isPlayable = true;
+        else if (idx === activeUncompletedIndex) isPlayable = true;
+
+        c.unlocked = isPlayable;
+        const isCurrentActivePlaneTarget = (idx === activeUncompletedIndex);
+
+        const pin = document.createElement('div');
+        let pinClass = 'locked';
+        if (allCleared) pinClass = 'perfect-cleared unlocked';
+        else if (mainCleared) pinClass = 'unlocked';
+        else if (isPlayable) pinClass = 'active-target';
+
+        pin.className = `node-pin ${pinClass}`;
+        pin.id = `pin-${c.id}`;
+
+        let statusText = '';
+        if (allCleared) statusText = '★ 大滿貫';
+        else if (mainCleared) statusText = '✓ 已通關';
+        else if (isPlayable) statusText = '進行中';
+
+        pin.innerHTML = `
+          ${isCurrentActivePlaneTarget ? `<div class="plane-badge">${currentPlaneIcon}</div>` : ''}
+          <div class="pin-icon">
+            <img class="flag-img" src="${flagUrl}" alt="${c.name}" />
+            ${!isPlayable ? '<div class="lock-overlay">🔒</div>' : ''}
+          </div>
+         <div class="pin-label">${currentContinentKey === 'world' ? `🔍 進入${continentChineseNames[c.continent]} (${c.name})` : `${c.name} ${statusText ? `(${statusText})` : ''}`}</div>
+        `;
+
+        pin.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+
+          // 🌐 全球俯視圖：點擊各大洲樞紐國直接放大進入該大洲視野
+          if (currentContinentKey === 'world') {
+            // 若該大洲尚未開放（副本星不足），先檢查海關門檻並提示
+            if (idx > 0) {
+              const prevCountry = worldData[idx - 1];
+              const gate = checkCrossContinentGate(prevCountry.continent, c.continent);
+              if (!gate.allowed && !isPlayable) {
+                alert(`🛂 【${gate.toName}海關通行證不足】\n\n進入「${gate.toName}」航線前，需先在「${gate.fromName}」累積至少 ${gate.requiredStars} 顆副本星（目前：${gate.currentStars} / ${gate.requiredStars} ⭐）！\n\n💡 請先前往【${gate.fromName}】挑戰「🔥 美食暴走」或「💣 廚房炸彈」收集星星吧！`);
+                focusContinent(prevCountry.continent);
+                return;
+              }
+            }
+            focusContinent(c.continent);
+            return;
+          }
+
+          // 🗺️ 大洲詳細地圖視圖：點擊國家開啟關卡選單
+          if (isPlayable && !mainCleared && idx > 0) {
+            const prevCountry = worldData[idx - 1];
+            const gate = checkCrossContinentGate(prevCountry.continent, c.continent);
+            if (!gate.allowed) {
+              alert(`🛂 【${gate.toName}海關通行證不足】\n\n進入「${gate.toName}」航線前，需先在「${gate.fromName}」累積至少 ${gate.requiredStars} 顆副本星（目前：${gate.currentStars} / ${gate.requiredStars} ⭐）！\n\n💡 請留在【${gate.fromName}】，挑任意國家挑戰「🔥 美食暴走」或「💣 廚房炸彈」收集星星吧！`);
+              focusContinent(prevCountry.continent);
+              return;
+            }
+          }
+          if (isPlayable) {
+            openLevelModal(c);
+          } else {
+            alert(`🔒 【${c.name}】尚未開航！請先通關前面的國家航線。`);
+          }
+        });
+pinLayer.appendChild(pin);
+      });
+
+      // 保底顯示飛機：若目前畫面沒有「尚未通關的進行中國家」，就把飛機停在目前視野中最後一個已解鎖國家上
+      if (!document.querySelector('.plane-badge')) {
+        const visibleUnlocked = worldData.filter((c, i) => {
+          const p = userProgress[c.id] || {};
+          const prevC = i > 0 ? worldData[i - 1] : null;
+          const prevP = prevC ? (userProgress[prevC.id] || {}) : { stage1: true, stage2: true, stage3: true };
+          const unlocked = (i === 0) || (prevP.stage1 && prevP.stage2 && prevP.stage3) || p.stage1 || p.stage2 || p.stage3;
+          if (!unlocked) return false;
+          if (currentContinentKey === 'world') return c.mainHub;
+          if (currentContinentKey === 'americas') {
+            return c.continent === 'americas' && c.wordType === (americasSubRegion === 'north' ? 'short' : 'long');
+          }
+          return c.continent === currentContinentKey;
+        });
+        const fallbackCountry = visibleUnlocked[visibleUnlocked.length - 1] || worldData[0];
+        const fallbackPin = document.getElementById(`pin-${fallbackCountry.id}`);
+        if (fallbackPin) {
+          const planeBadge = document.createElement('div');
+          planeBadge.className = 'plane-badge';
+          planeBadge.innerText = currentPlaneIcon;
+          fallbackPin.prepend(planeBadge);
+        }
+      }
+
+      renderFlightRoutes();
+      updatePinPositions(currentTx, currentTy, currentK);if (activeUncompletedIndex !== -1) {
+        const targetC = worldData[activeUncompletedIndex];
+        const prog = userProgress[targetC.id] || {};
+        if (!prog.stage1) {
+          updatePilotGuide(`我們抵達了【${targetC.name}】！點擊進入第 1 關解鎖指法，或挑戰副本賺雙倍里程！`);
+        } else if (!prog.stage2) {
+          updatePilotGuide(`太棒了！【${targetC.name}】第 1 關已過，繼續挑戰第 2 關！`);
+        } else if (!prog.stage3) {
+          updatePilotGuide(`只差臨門一腳！完成【${targetC.name}】第 3 關就能解鎖國家美食與護照蓋章！`);
+        }
+      } else {
+        updatePilotGuide("恭喜您！全球 50 國美食盲打航線已全數完美通關！您是頂級盲打廚神大師！");
+      }
+
+      updateAmericasSubBarUI();
+      updateHeaderStats();
+    }
+
+    function updatePinPositions(tx = 0, ty = 0, k = 1) {
+      worldData.forEach(c => {
+        const pin = document.getElementById(`pin-${c.id}`);
+        if (!pin) return;
+        const coords = projection([c.lon, c.lat]);
+        if (coords) {
+          const x = coords[0] * k + tx;
+          const y = coords[1] * k + ty;
+          pin.style.left = `${x}px`;
+          pin.style.top = `${y}px`;
+          const pinScale = Math.max(0.7, 1 / Math.pow(k, 0.4));
+          pin.style.transform = `translate(-50%, -50%) scale(${pinScale})`;
+        }
+      });
+    }
+
+    function isNorthAmericaCleared() {
+      const northCountries = worldData.filter(c => c.continent === 'americas' && c.wordType === 'short');
+      return northCountries.every(c => {
+        const p = userProgress[c.id] || {};
+        return p.stage1 && p.stage2 && p.stage3;
+      });
+    }
+
+    function updateAmericasSubBarUI() {
+      const subBar = document.getElementById('americasSubBar');
+      if (!subBar) return;
+      if (currentContinentKey === 'americas') {
+        subBar.style.display = 'flex';
+        const northBtn = document.getElementById('subbtn-north');
+        const southBtn = document.getElementById('subbtn-south');
+        const northDone = isNorthAmericaCleared();
+
+        northBtn.classList.toggle('active', americasSubRegion === 'north');
+        southBtn.classList.toggle('active', americasSubRegion === 'south');
+        northBtn.innerText = northDone ? '🍁 北美洲 (✓ 已通關)' : '🍁 北美洲 (8國 · 基礎單字)';
+        southBtn.innerText = northDone ? '🦙 南美洲 (12國 · 進階長單字)' : '🔒 南美洲 (需先過北美洲)';
+      } else {
+        subBar.style.display = 'none';
+      }
+    }
+
+    function switchAmericasRegion(regionKey, force = false) {
+      if (regionKey === 'south' && !force && !isNorthAmericaCleared()) {
+        const northCountries = worldData.filter(c => c.continent === 'americas' && c.wordType === 'short');
+        const clearedCount = northCountries.filter(c => {
+          const p = userProgress[c.id] || {};
+          return p.stage1 && p.stage2 && p.stage3;
+        }).length;
+        alert(`🛂 【南美洲航線尚未開放】\n\n請先完成「北美洲」全部 ${northCountries.length} 個國家的基礎單字關卡（目前進度：${clearedCount} / ${northCountries.length} 國），過關後即可飛往南美洲挑戰進階長單字！`);
+        return;
+      }
+      americasSubRegion = regionKey;
+      focusContinent('americas');
+    }
+
+    function focusContinent(continentKey, onComplete = null) {
+      currentContinentKey = continentKey;
+
+      document.querySelectorAll('.continent-btn').forEach(btn => btn.classList.remove('active'));
+      const targetBtn = document.getElementById(`cbtn-${continentKey}`);
+      if(targetBtn) targetBtn.classList.add('active');
+
+      if (continentKey === 'americas') {
+        if (!isNorthAmericaCleared()) {
+          americasSubRegion = 'north';
+        } else if (americasSubRegion !== 'north' && americasSubRegion !== 'south') {
+          americasSubRegion = 'south';
+        }
+      }
+
+      updateAmericasSubBarUI();
+
+      const viewKey = (continentKey === 'americas') ? `americas_${americasSubRegion}` : continentKey;
+      const view = continentViews[viewKey] || continentViews[continentKey] || continentViews['world'];
+      const container = document.getElementById('mapContainer');
+      const width = container.clientWidth, height = container.clientHeight;
+
+      const centerCoords = projection(view.center);
+      const k = view.zoom;
+      const tx = width / 2 - k * centerCoords[0];
+      const ty = height / 2 - k * centerCoords[1];
+
+      if (window.activeMapTimer) {
+        window.activeMapTimer.stop();
+        window.activeMapTimer = null;
+      }
+
+      g.interrupt().transition().duration(800).ease(d3.easeCubicInOut)
+        .attr("transform", `translate(${tx},${ty}) scale(${k})`);
+
+      flightG.interrupt().transition().duration(800).ease(d3.easeCubicInOut)
+        .attr("transform", `translate(${tx},${ty}) scale(${k})`);
+
+      const startTime = Date.now();
+      const startTx = currentTx, startTy = currentTy, startK = currentK;
+      
+      renderCountryPins();
+
+      window.activeMapTimer = d3.timer(() => {
+        const elapsed = Date.now() - startTime;
+        const t = Math.min(1, elapsed / 800);
+        const easeT = d3.easeCubicInOut(t);
+        const curTx = startTx + (tx - startTx) * easeT;
+        const curTy = startTy + (ty - startTy) * easeT;
+        const curK = startK + (k - startK) * easeT;
+        
+        currentTx = curTx; currentTy = curTy; currentK = curK;
+        updatePinPositions(curTx, curTy, curK);
+
+        if (t >= 1) {
+          currentTx = tx; currentTy = ty; currentK = k;
+          updatePinPositions(tx, ty, k);
+          window.activeMapTimer = null;
+          if (onComplete) onComplete();
+          return true;
+        }
+      });
+    }
+
+    function playCrossContinentFlightAnimation(fromCountry, toCountry, onFinished) {
+      switchView('mapView');
+      focusContinent('world', () => {
+        const p1 = projection([fromCountry.lon, fromCountry.lat]);
+        const p2 = projection([toCountry.lon, toCountry.lat]);
+        if (!p1 || !p2) {
+          if (onFinished) onFinished();
+          return;
+        }
+
+        const dx = p2[0] - p1[0];
+        const dy = p2[1] - p1[1];
+        const dr = Math.sqrt(dx * dx + dy * dy) * 1.5;
+
+        flightG.selectAll(".anim-cross-route").remove();
+        const animPath = flightG.append("path")
+          .attr("d", `M ${p1[0]} ${p1[1]} A ${dr} ${dr} 0 0 1 ${p2[0]} ${p2[1]}`)
+          .attr("class", "flight-line-cross anim-cross-route");
+
+        const pathNode = animPath.node();
+        const totalLength = pathNode.getTotalLength();
+
+        animPath
+          .attr("stroke-dasharray", `${totalLength} ${totalLength}`)
+          .attr("stroke-dashoffset", totalLength)
+          .transition()
+          .duration(2200)
+          .ease(d3.easeCubicInOut)
+          .attr("stroke-dashoffset", 0)
+          .on("end", () => {
+            animPath.attr("stroke-dasharray", "8, 5");
+          });
+
+        document.querySelectorAll('.flying-plane-anim').forEach(el => el.remove());
+        const mapContainer = document.getElementById('mapContainer');
+        const planeEl = document.createElement('div');
+        planeEl.className = 'flying-plane-anim';
+        planeEl.innerText = getEvolvedPlaneEmoji();
+        mapContainer.appendChild(planeEl);
+
+        updatePilotGuide(`🎉 專機正從【${fromCountry.name}】啟航飛往下一洲第一站【${toCountry.name}】！`);
+
+        const startAnim = Date.now();
+        const duration = 2200;
+        let hasCompleted = false;
+
+        const flightTimer = d3.timer(() => {
+          if (hasCompleted) return true;
+          const elapsed = Date.now() - startAnim;
+          const t = Math.min(1, elapsed / duration);
+          const easeT = d3.easeCubicInOut(t);
+
+          const pt = pathNode.getPointAtLength(easeT * totalLength);
+          const ptAhead = pathNode.getPointAtLength(Math.min(totalLength, easeT * totalLength + 2));
+          const angle = Math.atan2(ptAhead.y - pt.y, ptAhead.x - pt.x) * 180 / Math.PI;
+
+          const screenX = pt.x * currentK + currentTx;
+          const screenY = pt.y * currentK + currentTy;
+
+          planeEl.style.left = `${screenX}px`;
+          planeEl.style.top = `${screenY}px`;
+          planeEl.style.transform = `translate(-50%, -50%) rotate(${angle + 45}deg) scale(${1 + Math.sin(t * Math.PI) * 0.45})`;
+
+          if (t >= 1) {
+            hasCompleted = true;
+            flightTimer.stop();
+            setTimeout(() => {
+              planeEl.remove();
+              focusContinent(toCountry.continent, () => {
+                if (onFinished) onFinished();
+              });
+            }, 400);
+            return true;
+          }
+        });
+      });
+    }
+
+    function openLevelModal(country) {
+      currentSelectedCountry = country;
+      document.getElementById('countryModalTitle').innerText = `${country.name} 美食指法廚房`;
+
+      const prog = userProgress[country.id] || {};
+
+      let mainClearedCount = 0;
+      if (prog.stage1) mainClearedCount++;
+      if (prog.stage2) mainClearedCount++;
+      if (prog.stage3) mainClearedCount++;
+
+      document.getElementById('mainProgressLabel').innerText = `主線進度：${mainClearedCount} / 3 (完成 3 關解鎖國家美食圖鑑與護照蓋章)`;
+
+      ['stage1', 'stage2', 'stage3', 'speed', 'perfect'].forEach((stg, idx) => {
+        const btn = document.getElementById(`btn-${stg}`);
+        const tag = document.getElementById(`tag-${stg}`);
+        if (!btn || !tag) return;
+
+        if (prog[stg]) {
+          btn.className = 'btn-card cleared';
+          tag.className = 'clear-tag done';
+          tag.innerText = '✓ 已完成';
+        } else if (stg === 'stage1' || (stg === 'stage2' && prog.stage1) || (stg === 'stage3' && prog.stage2) || stg === 'speed' || stg === 'perfect') {
+          btn.className = 'btn-card';
+          tag.className = 'clear-tag none';
+          tag.innerText = '可挑戰';
+        } else {
+          btn.className = 'btn-card disabled';
+          tag.className = 'clear-tag locked';
+          tag.innerText = `🔒 需過第${idx}關`;
+        }
+      });
+
+      document.getElementById('levelModal').style.display = 'flex';
+    }
+
+    function closeModal() { document.getElementById('levelModal').style.display = 'none'; }
+
+    function autoFocusInput() {
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          const inputEl = document.getElementById('typingInput');
+          if (inputEl) {
+            inputEl.focus();
+            inputEl.select();
+          }
+        }, 50);
+      });
+    }
+
+    function startCountryMode(modeKey) {
+      const prog = userProgress[currentSelectedCountry.id] || {};
+
+      if (modeKey === 'stage2' && !prog.stage1) return alert("🔒 請先完成「第 1 關」！");
+      if (modeKey === 'stage3' && !prog.stage2) return alert("🔒 請先完成「第 2 關」！");
+
+      closeModal();
+      switchView('gameView');
+      
+      currentModeKey = modeKey;
+      const qSet = countryQuestions[currentSelectedCountry.id] || countryQuestions['taiwan'];
+      currentList = qSet[modeKey] || qSet['stage1'];
+      currentIndex = 0;
+      errorCount = 0;
+      comboCount = 0;
+      maxComboInSession = 0;
+      stagePlayCounter++;
+
+      // 🎲 隨機突發事件觸發邏輯（每 3 局觸發一次，或偶數特定關卡）
+      currentRandomEvent = null;
+      const eventBanner = document.getElementById('eventBanner');
+      const targetCardEl = document.getElementById('targetCardEl');
+      targetCardEl.classList.remove('smoke-mode');
+      eventBanner.style.display = 'none';
+
+      if (stagePlayCounter % 3 === 0) {
+        currentRandomEvent = 'freeze';
+        eventBanner.style.display = 'block';
+        eventBanner.innerText = '🧊 突發事件【食材結凍啦】：藍色冰塊字元需要「連按 2 下」敲碎冰塊，通關拿雙倍里程！';
+      } else if (stagePlayCounter % 4 === 0) {
+        currentRandomEvent = 'vip';
+        eventBanner.style.display = 'block';
+        eventBanner.innerText = '👑 突發事件【VIP 美食評論家突襲】：出餐速度達標直接領取雙倍飛行里程！';
+      }
+
+      document.getElementById('errorText').innerText = errorCount;
+      document.getElementById('comboText').innerText = comboCount;
+      document.getElementById('stageTitle').innerText = `${currentSelectedCountry.name}: ${modeKey.toUpperCase()}`;
+      
+      loadItem(currentList[currentIndex]);
+      startTimer();
+      autoFocusInput();
+    }
+
+    function loadItem(item) {
+      document.getElementById('foodEmoji').innerText = currentRandomEvent === 'vip' ? '👑' : item.icon;
+      document.getElementById('translation').innerText = `「${item.zh}」`;
+      document.getElementById('typingInput').value = '';
+
+      frozenIndices.clear();
+      if (currentRandomEvent === 'freeze') {
+        const validIndices = [];
+        for (let i = 0; i < item.target.length; i++) {
+          if (item.target[i] !== ' ') validIndices.push(i);
+        }
+        const freezeCount = Math.min(3, Math.max(2, Math.floor(validIndices.length / 5)));
+        while (frozenIndices.size < freezeCount && validIndices.length > 0) {
+          const randPos = Math.floor(Math.random() * validIndices.length);
+          frozenIndices.add(validIndices.splice(randPos, 1)[0]);
+        }
+      }
+
+      updateTargetDisplay(item.target, '');
+      autoFocusInput();
+    }
+
+    function updateTargetDisplay(target, inputVal) {
+      let html = '';
+      for (let i = 0; i < target.length; i++) {
+        const isFrozen = frozenIndices.has(i);
+        if (i < inputVal.length) {
+          html += `<span class="correct-char">${target[i]}</span>`;
+        } else if (i === inputVal.length) {
+          html += isFrozen
+            ? `<span class="frozen-char" title="結冰字元：需連按 2 下">🧊${target[i]}</span>`
+            : `<span class="current-char">${target[i]}</span>`;
+        } else {
+          html += isFrozen ? `<span class="frozen-char">🧊${target[i]}</span>` : target[i];
+        }
+      }
+      document.getElementById('targetDisplay').innerHTML = html;
+
+      const nextChar = target[inputVal.length] ? target[inputVal.length].toLowerCase() : '';
+      updateVirtualKeyboardHighlight(nextChar, frozenIndices.has(inputVal.length));
+    }
+
+    function updateVirtualKeyboardHighlight(char, isFrozenNext = false) {
+      document.querySelectorAll('.kb-key').forEach(k => k.classList.remove('active-next'));
+
+      if (!char) {
+        document.getElementById('fingerGuideText').innerText = "🎉 太棒了！料理動作完成！";
+        return;
+      }
+
+      let keyId = `key-${char}`;
+      if (char === ' ') keyId = 'key-space';
+
+      const keyEl = document.getElementById(keyId);
+      if (keyEl) keyEl.classList.add('active-next');
+
+      const info = fingerMap[char];
+      const freezeTag = isFrozenNext ? ' <span style="color:#38BDF8;">[🧊結冰：連按2下破冰！]</span>' : '';
+      if (info) {
+        document.getElementById('fingerGuideText').innerHTML = `👉 下一個打擊動作【<b style="color:var(--gold);">${char.toUpperCase()}</b>】${freezeTag}：請用 <span style="color:var(--gold); font-size:13px;">[${info.name}]</span> 打擊`;
+      } else {
+        document.getElementById('fingerGuideText').innerHTML = `👉 請按下鍵盤上的 [${char.toUpperCase()}]${freezeTag}`;
+      }
+    }
+
+    function triggerComboFloat(txt) {
+      const card = document.getElementById('targetCardEl');
+      const el = document.createElement('div');
+      el.className = 'combo-float';
+      el.innerText = txt;
+      card.appendChild(el);
+      setTimeout(() => el.remove(), 600);
+    }
+
+    function handleTyping() {
+      const inputEl = document.getElementById('typingInput');
+      const inputVal = inputEl.value;
+      const targetText = currentList[currentIndex].target;
+      const currentPos = inputVal.length - 1;
+
+      if (inputVal.length > 0 && frozenIndices.has(currentPos) && inputVal[currentPos] === targetText[currentPos]) {
+        frozenIndices.delete(currentPos);
+        inputEl.value = inputVal.substring(0, currentPos);
+        playKeySound();
+        triggerComboFloat('❄️ 破冰！再按一下！');
+        updateTargetDisplay(targetText, inputEl.value);
+        return;
+      }
+
+      if (inputVal.length > 0 && !targetText.startsWith(inputVal)) {
+        playErrorSound();
+        errorCount++;
+        comboCount = 0;
+        document.getElementById('errorText').innerText = errorCount;
+        document.getElementById('comboText').innerText = comboCount;
+
+        const pilotWrap = document.getElementById('pilotAvatarWrap');
+        if(pilotWrap) {
+          pilotWrap.classList.add('panic');
+          setTimeout(() => pilotWrap.classList.remove('panic'), 400);
+        }
+
+        inputEl.classList.add('error-flash');
+        setTimeout(() => inputEl.classList.remove('error-flash'), 200);
+
+        document.getElementById('typingInput').value = inputVal.substring(0, inputVal.length - 1);
+
+        if (currentModeKey === 'perfect') {
+          stopTimer();
+          unlockBadgeById('badge_boom_art');
+          alert("💣 廚房爆炸！不小心按錯鍵，炸彈被引爆了！\n（意外獲得抽象成就：【💥 廚房爆破藝術家】！）");
+          updateHeaderStats();
+          saveGame();
+          switchView('mapView');
+        }
+        return;
+      }
+
+      playKeySound();
+      comboCount++;
+      if (comboCount > maxComboInSession) maxComboInSession = comboCount;
+      document.getElementById('comboText').innerText = comboCount;
+
+      if (comboCount % 5 === 0) {
+        triggerComboFloat(`🔥 Combo x${comboCount}!`);
+      }
+
+      const foodEmoji = document.getElementById('foodEmoji');
+      foodEmoji.classList.add('bounce');
+      setTimeout(() => foodEmoji.classList.remove('bounce'), 100);
+
+      const pilotWrap = document.getElementById('pilotAvatarWrap');
+      if(pilotWrap) {
+        pilotWrap.classList.add('cheer');
+        setTimeout(() => pilotWrap.classList.remove('cheer'), 300);
+      }
+
+      updateTargetDisplay(targetText, inputVal);
+
+      if (inputVal === targetText) {
+        currentIndex++;
+        if (currentIndex < currentList.length) {
+          loadItem(currentList[currentIndex]);
+        } else {
+          finishStage();
+        }
+      }
+    }
+
+    function startTimer() {
+      clearInterval(timerInterval);
+      startTime = Date.now();
+      
+      const timerBarContainer = document.getElementById('timerBarContainer');
+      const timerBarFill = document.getElementById('timerBarFill');
+
+      if (currentModeKey === 'speed') {
+        timeRemaining = SPEED_MODE_TIME_LIMIT;
+        timerBarContainer.style.display = 'block';
+        timerBarFill.style.width = '100%';
+        document.getElementById('timerText').innerText = timeRemaining.toFixed(1);
+
+        timerInterval = setInterval(() => {
+          elapsedTime = (Date.now() - startTime) / 1000;
+          let left = SPEED_MODE_TIME_LIMIT - elapsedTime;
+          
+          if (left <= 0) {
+            left = 0;
+            stopTimer();
+            playErrorSound();
+            alert("⏱️ 時間到！暴走食材逃跑了！");
+            switchView('mapView');
+            return;
+          }
+          
+          document.getElementById('timerText').innerText = left.toFixed(1);
+          let percentage = (left / SPEED_MODE_TIME_LIMIT) * 100;
+          timerBarFill.style.width = `${percentage}%`;
+        }, 50);
+
+      } else {
+        timerBarContainer.style.display = 'none';
+        timerInterval = setInterval(() => {
+          elapsedTime = (Date.now() - startTime) / 1000;
+          document.getElementById('timerText').innerText = elapsedTime.toFixed(1);
+        }, 100);
+      }
+    }
+
+    function stopTimer() { clearInterval(timerInterval); clearInterval(autoNextInterval); }
+
+    function unlockBadgeById(id) {
+      const b = badgesData.find(item => item.id === id);
+      if (b && !b.unlocked) {
+        b.unlocked = true;
+        return b;
+      }
+      return null;
+    }
+
+    function finishStage() {
+      stopTimer();
+      const totalTime = Math.max(0.5, elapsedTime).toFixed(1);
+      let totalChars = currentList.reduce((sum, item) => sum + item.target.length, 0);
+      let wpm = Math.round((totalChars / 5) / (totalTime / 60)) || 0;
+
+      // 更新最高航速紀錄
+      if (wpm > maxWpmRecord) maxWpmRecord = wpm;
+
+      // 計算本局獲得的飛行里程 (km)
+      let multiplier = 1;
+      if (currentModeKey === 'speed' || currentModeKey === 'perfect') multiplier *= 2;
+      if (currentRandomEvent) multiplier *= 2;
+      const gainedMiles = Math.max(150, wpm * 15) * multiplier;
+      totalMilesKm += gainedMiles;
+
+      if (!userProgress[currentSelectedCountry.id]) userProgress[currentSelectedCountry.id] = {};
+      
+      const prevContinentStars = getContinentBonusStars(currentSelectedCountry.continent);
+      const wasModeAlreadyCleared = Boolean(userProgress[currentSelectedCountry.id][currentModeKey]);
+      const wasStage3AlreadyCleared = userProgress[currentSelectedCountry.id].stage3;
+      userProgress[currentSelectedCountry.id][currentModeKey] = true;
+
+      const prog = userProgress[currentSelectedCountry.id];
+      let newlyUnlockedBadges = [];
+      let rewardNotice = "";
+      let isJustCompletedAllMainStages = false;
+      pendingCrossContinentFlight = null;
+
+      // 檢查搞笑成就解鎖條件
+      if (wpm >= 55) {
+        const b = unlockBadgeById('badge_smoke');
+        if (b) newlyUnlockedBadges.push(b.name);
+      }
+      if (currentModeKey === 'speed' && (SPEED_MODE_TIME_LIMIT - elapsedTime) >= 5) {
+        const b = unlockBadgeById('badge_single20');
+        if (b) newlyUnlockedBadges.push(b.name);
+      }
+      if (maxComboInSession >= 45) {
+        const b = unlockBadgeById('badge_hsr');
+        if (b) newlyUnlockedBadges.push(b.name);
+      }
+      if (errorCount === 0) {
+        const b = unlockBadgeById('badge_monk');
+        if (b) newlyUnlockedBadges.push(b.name);
+      }
+      if (errorCount >= 10) {
+        const b = unlockBadgeById('badge_chicken');
+        if (b) newlyUnlockedBadges.push(b.name);
+      }
+
+      const totalSpeedClears = worldData.filter(c => userProgress[c.id]?.speed).length;
+      if (totalSpeedClears >= 5) {
+        const b = unlockBadgeById('badge_whip5');
+        if (b) newlyUnlockedBadges.push(b.name);
+      }
+      const totalPerfectClears = worldData.filter(c => userProgress[c.id]?.perfect).length;
+      if (totalPerfectClears >= 5) {
+        const b = unlockBadgeById('badge_bomb_expert');
+        if (b) newlyUnlockedBadges.push(b.name);
+      }
+      const totalCountryClears = worldData.filter(c => {
+        const p = userProgress[c.id] || {};
+        return p.stage1 && p.stage2 && p.stage3;
+      }).length;
+      if (totalCountryClears >= 10) {
+        const b = unlockBadgeById('badge_chopsticks');
+        if (b) newlyUnlockedBadges.push(b.name);
+      }
+      if (totalCountryClears >= 50) {
+        const b = unlockBadgeById('badge_foodie50');
+        if (b) newlyUnlockedBadges.push(b.name);
+      }
+
+      if (prog.stage1 && prog.stage2 && prog.stage3) {
+        if (currentModeKey === 'stage3' && !wasStage3AlreadyCleared) {
+          isJustCompletedAllMainStages = true;
+        }
+
+        const currentIdx = worldData.findIndex(c => c.id === currentSelectedCountry.id);
+        if (currentIdx !== -1 && currentIdx + 1 < worldData.length) {
+          const nextCountry = worldData[currentIdx + 1];
+          rewardNotice = `🎉 已開啟下一站：【${nextCountry.name}】！`;
+          if (isJustCompletedAllMainStages && currentSelectedCountry.continent === 'americas' && currentSelectedCountry.wordType === 'short' && nextCountry.wordType === 'long') {
+            americasSubRegion = 'south';
+            rewardNotice = `🎉 北美洲全數通關！已解鎖南美洲航線，下一站：【${nextCountry.name}】！`;
+          }
+
+          if (isJustCompletedAllMainStages && currentSelectedCountry.continent !== nextCountry.continent) {
+            pendingCrossContinentFlight = {
+              from: currentSelectedCountry,
+              to: nextCountry
+            };
+          }
+        }
+      }
+
+      // 若該洲主線已全破，且剛透過副本（speed / perfect）湊滿第 3 顆星開通海關，立刻觸發跨洲飛航動畫！
+      if ((currentModeKey === 'speed' || currentModeKey === 'perfect') && !wasModeAlreadyCleared) {
+        const newContinentStars = getContinentBonusStars(currentSelectedCountry.continent);
+        if (prevContinentStars < 3 && newContinentStars >= 3) {
+          const continentCountries = worldData.filter(c => c.continent === currentSelectedCountry.continent);
+          const lastCountryInContinent = continentCountries[continentCountries.length - 1];
+          const lastProg = userProgress[lastCountryInContinent.id] || {};
+          const lastIdx = worldData.findIndex(c => c.id === lastCountryInContinent.id);
+          const nextContCountry = (lastIdx >= 0 && lastIdx < worldData.length - 1) ? worldData[lastIdx + 1] : null;
+
+          if (lastProg.stage3 && nextContCountry && nextContCountry.continent !== currentSelectedCountry.continent) {
+            pendingCrossContinentFlight = {
+              from: lastCountryInContinent,
+              to: nextContCountry
+            };
+          }
+        }
+      }
+
+      if (newlyUnlockedBadges.length > 0) {
+        rewardNotice += `${rewardNotice ? '<br>' : ''}🏆 解鎖抽象成就：【${newlyUnlockedBadges.join('、')}】！`;
+      }
+
+      document.getElementById('resultMilesGained').innerText = `+${gainedMiles.toLocaleString()} km${multiplier > 1 ? ` (${multiplier}x 獎勵!)` : ''}`;
+      document.getElementById('resultTime').innerText = totalTime;
+      document.getElementById('resultErrors').innerText = errorCount;
+      document.getElementById('resultWPM').innerText = wpm;
+
+      const noticeEl = document.getElementById('badgeRewardNotice');
+      if (rewardNotice) {
+        noticeEl.innerHTML = rewardNotice;
+        noticeEl.style.display = 'block';
+      } else {
+        noticeEl.style.display = 'none';
+      }
+
+      if (isJustCompletedAllMainStages) {
+        showPassportStampModal(currentSelectedCountry);
+      } else if (pendingCrossContinentFlight) {
+        const flightInfo = pendingCrossContinentFlight;
+        pendingCrossContinentFlight = null;
+        playCrossContinentFlightAnimation(flightInfo.from, flightInfo.to, () => {
+          showResultModalForStage();
+        });
+      } else {
+        showResultModalForStage();
+      }
+      updateHeaderStats(true);
+      saveGame();
+    }
+
+    function showResultModalForStage() {
+      const nextBtn = document.getElementById('nextStageBtn');
+      const autoBanner = document.getElementById('autoNextBanner');
+
+      if (currentModeKey === 'stage1' || currentModeKey === 'stage2') {
+        autoBanner.style.display = 'block';
+        nextBtn.style.display = 'inline-block';
+        nextBtn.innerText = '立即下一關 👉';
+        document.getElementById('resultModal').style.display = 'flex';
+        startAutoNextCountdown();
+      } else {
+        clearInterval(autoNextInterval);
+        autoBanner.style.display = 'none';
+
+        const currentIdx = worldData.findIndex(c => c.id === currentSelectedCountry.id);
+        if (currentIdx !== -1 && currentIdx + 1 < worldData.length) {
+          const nextCountry = worldData[currentIdx + 1];
+          nextBtn.style.display = 'inline-block';
+          nextBtn.innerText = `✈️ 下一國：${nextCountry.name}`;
+        } else {
+          nextBtn.style.display = 'none';
+        }
+
+        document.getElementById('resultModal').style.display = 'flex';
+      }
+    }
+
+    function showPassportStampModal(country) {
+      document.getElementById('stampCountryTitle').innerText = country.name;
+      document.getElementById('stampFlagImg').src = `https://flagcdn.com/w80/${country.code}.png`;
+      document.getElementById('stampCountryName').innerText = country.code.toUpperCase();
+      
+      const graphic = document.getElementById('passportStampGraphic');
+      graphic.classList.remove('stamped');
+      
+      document.getElementById('passportStampModal').style.display = 'flex';
+
+      setTimeout(() => {
+        graphic.classList.add('stamped');
+      }, 150);
+    }
+
+    function closePassportStampModal() {
+      document.getElementById('passportStampModal').style.display = 'none';
+      showBadgeUnlockModal(currentSelectedCountry);
+    }
+
+    function startAutoNextCountdown() {
+      let count = 3;
+      const countEl = document.getElementById('autoNextCount');
+      countEl.innerText = count;
+
+      clearInterval(autoNextInterval);
+      autoNextInterval = setInterval(() => {
+        count--;
+        if (count > 0) {
+          countEl.innerText = count;
+        } else {
+          clearInterval(autoNextInterval);
+          manualNextStageAction();
+        }
+      }, 1000);
+    }
+
+    function manualNextStageAction() {
+      clearInterval(autoNextInterval);
+      document.getElementById('resultModal').style.display = 'none';
+
+      if (currentModeKey === 'stage1') {
+        startCountryMode('stage2');
+      } else if (currentModeKey === 'stage2') {
+        startCountryMode('stage3');
+      } else {
+        const currentIdx = worldData.findIndex(c => c.id === currentSelectedCountry.id);
+        if (currentIdx !== -1 && currentIdx + 1 < worldData.length) {
+          const nextCountry = worldData[currentIdx + 1];
+          // 檢查跨洲副本星門檻（全大洲通用）
+          const gate = checkCrossContinentGate(currentSelectedCountry.continent, nextCountry.continent);
+          if (!gate.allowed) {
+            alert(`🛂 【${gate.toName}海關通行證不足】\n\n前往「${gate.toName}」前需先在「${gate.fromName}」累積 ${gate.requiredStars} 顆副本星（目前：${gate.currentStars} / ${gate.requiredStars} ⭐）！`);
+            switchView('mapView');
+            focusContinent(currentSelectedCountry.continent);
+            return;
+          }
+          if (nextCountry.continent === 'americas' && nextCountry.wordType === 'long') {
+            americasSubRegion = 'south';
+          }
+          currentSelectedCountry = nextCountry;
+          startCountryMode('stage1');
+        } else {
+          renderCountryPins();
+          switchView('mapView');
+        }
+      }
+    }
+
+    function showBadgeUnlockModal(country) {
+      document.getElementById('unlockBadgeIcon').innerText = country.badgeIcon || '🏆';
+      document.getElementById('unlockBadgeTitle').innerText = country.badgeTitle || `${country.name} 美食榮譽徽章`;
+      document.getElementById('unlockBadgeDesc').innerText = country.badgeDesc || `恭喜您順利完成${country.name}所有指法挑戰！`;
+
+      const confettiContainer = document.getElementById('confettiContainer');
+      confettiContainer.innerHTML = '';
+      const colors = ['#F2A93B', '#E65F5C', '#2A9D8F', '#72B2D6', '#E9C46A'];
+
+      for (let i = 0; i < 30; i++) {
+        const p = document.createElement('div');
+        p.className = 'confetti-particle';
+        p.style.left = `${Math.random() * 100}%`;
+        p.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+        p.style.animationDelay = `${Math.random() * 1.5}s`;
+        p.style.animationDuration = `${1.8 + Math.random() * 1.5}s`;
+        confettiContainer.appendChild(p);
+      }
+
+      document.getElementById('badgeUnlockModal').style.display = 'flex';
+    }
+
+function closeBadgeUnlockModal() {
+      document.getElementById('badgeUnlockModal').style.display = 'none';
+
+      if (pendingCrossContinentFlight) {
+        const flightInfo = pendingCrossContinentFlight;
+        pendingCrossContinentFlight = null;
+        const gate = checkCrossContinentGate(flightInfo.from.continent, flightInfo.to.continent);
+        if (!gate.allowed) {
+          switchView('mapView');
+          focusContinent(flightInfo.from.continent);
+          updatePilotGuide(`🛂 ${gate.fromName}主線全破！還差 ${gate.requiredStars - gate.currentStars} 顆副本星即可啟航飛往${gate.toName}，快挑幾國打暴走或炸彈吧！`);
+        } else {
+          playCrossContinentFlightAnimation(flightInfo.from, flightInfo.to, () => {
+            showResultModalForStage();
+          });
+        }
+      } else {
+        showResultModalForStage();
+      }
+    }
+    function closeResultModal() {
+      clearInterval(autoNextInterval);
+      document.getElementById('resultModal').style.display = 'none';
+      switchView('mapView');
+      if (currentContinentKey === 'americas') {
+        focusContinent('americas');
+      } else {
+        renderCountryPins();
+      }
+    }
+
+    function updateHeaderStats(animateMiles = false) {
+      const unlockedBadges = badgesData.filter(b => b.unlocked).length;
+      document.getElementById('headerBadgeCount').innerText = `${unlockedBadges} / ${badgesData.length}`;
+      document.getElementById('unlockedCount').innerText = unlockedBadges;
+      document.getElementById('headerMaxWpm').innerText = `${maxWpmRecord} WPM`;
+      document.getElementById('totalMiles').innerText = `${totalMilesKm.toLocaleString()} km`;
+      document.getElementById('bonusStarCount').innerText = getTotalBonusStars();
+
+      const clearedCountries = worldData.filter(x => {
+        const prog = userProgress[x.id] || {};
+        return prog.stage1 && prog.stage2 && prog.stage3;
+      }).length;
+      document.getElementById('stampCount').innerText = `${clearedCountries} / ${worldData.length}`;
+
+      // 飛機等級標籤隨開航國數升級
+      let lv = 1;
+      if (clearedCountries >= 40) lv = 4;
+      else if (clearedCountries >= 25) lv = 3;
+      else if (clearedCountries >= 10) lv = 2;
+      document.getElementById('planeLevelTag').innerText = `Lv.${lv}`;
+
+      if (animateMiles) {
+        const box = document.getElementById('milesStatBox');
+        box.classList.add('highlight-bump');
+        setTimeout(() => box.classList.remove('highlight-bump'), 600);
+      }
+    }
+
+    function switchView(viewId) {
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      document.getElementById(viewId).classList.add('active');
+      if (viewId === 'gameView') {
+        autoFocusInput();
+      }
+    }
+
+    function openPassportModal() {
+      const grid = document.getElementById('passportGrid');
+      grid.innerHTML = worldData.map(c => {
+        const prog = userProgress[c.id] || {};
+        const isPassed = prog.stage1 && prog.stage2 && prog.stage3;
+        const isBombCleared = !!prog.perfect;
+        const flagUrl = `https://flagcdn.com/w80/${c.code}.png`;
+        
+        return `
+          <div class="stamp-slot ${isBombCleared ? 'gold-frame' : ''}" onclick="clickBadgeInPassport('${c.id}')">
+            ${isBombCleared ? '<div class="passport-crown-badge">👑</div>' : ''}
+            <div class="badge-circle ${isPassed ? 'unlocked' : 'locked'}">
+              <img class="passport-flag-img" src="${flagUrl}" alt="${c.name}" />
+              ${!isPassed ? '<div class="passport-lock-badge">🔒</div>' : ''}
+            </div>
+            <div style="font-size:11px; font-weight:bold; margin-top:6px; color:var(--navy);">${c.name}</div>
+            <div class="badge-click-hint">${isPassed ? (isBombCleared ? '👑 黃金暗黑食譜已解鎖' : '🍽️ 點擊看各國美食') : '未解鎖'}</div>
+          </div>
+        `;
+      }).join('');
+      document.getElementById('passportModal').style.display = 'flex';
+    }
+
+    function clickBadgeInPassport(countryId) {
+      const country = worldData.find(c => c.id === countryId);
+      if (!country) return;
+
+      const prog = userProgress[countryId] || {};
+      const isPassed = prog.stage1 && prog.stage2 && prog.stage3;
+      const isBombCleared = !!prog.perfect;
+
+      if (!isPassed) return alert(`🔒 【${country.name}】美食圖鑑尚未解鎖，請先前往地圖完成該國 3 關指法任務！`);
+
+      document.getElementById('detailCountryTitle').innerText = `${country.name} 特色美食圖鑑`;
+      document.getElementById('detailBadgeCircle').innerText = country.badgeIcon || '🧋';
+      document.getElementById('detailBadgeName').innerText = country.badgeTitle || `${country.name} 特色美食`;
+      document.getElementById('detailFoodIntro').innerText = country.foodIntro || country.badgeDesc || "無介紹資訊";
+
+      const darkBox = document.getElementById('detailDarkFoodBox');
+      if (isBombCleared) {
+        darkBox.style.background = '#FEF3C7';
+        darkBox.style.borderStyle = 'solid';
+        darkBox.innerText = country.darkFood || `👑 暗黑料理彩蛋：【地獄辣味${country.badgeTitle}】—— 吃完直接噴火飛上外太空！`;
+      } else {
+        darkBox.style.background = '#F8FAFC';
+        darkBox.style.borderStyle = 'dashed';
+        darkBox.innerText = '🔒 通關本國【💣 廚房炸彈菜單】即可解鎖護照金框與暗黑料理彩蛋！';
+      }
+
+      document.getElementById('badgeDetailModal').style.display = 'flex';
+    }
+
+    function closeBadgeDetailModal() { document.getElementById('badgeDetailModal').style.display = 'none'; }
+    function closePassportModal() { document.getElementById('passportModal').style.display = 'none'; }
+
+    function openBookModal() {
+      const grid = document.getElementById('badgesGrid');
+      grid.innerHTML = badgesData.map(b => `
+        <div class="badge-card ${b.unlocked ? '' : 'locked'}">
+          <div class="badge-icon">${b.icon}</div>
+          <div style="font-size:11px; font-weight:bold; color:var(--navy);">${b.name}</div>
+          <div style="font-size:9px; color:#666; margin-top:3px; line-height:1.3;">${b.desc}</div>
+        </div>
+      `).join('');
+      document.getElementById('bookModal').style.display = 'flex';
+    }
+    function closeBookModal() { document.getElementById('bookModal').style.display = 'none'; }
+/* ================= 📓 旅行練習筆記本邏輯 ================= */
+    function openNotebookModal() {
+      currentNotebookFilter = 'all';
+      document.querySelectorAll('.nb-tab').forEach((t, idx) => t.classList.toggle('active', idx === 0));
+      renderNotebookPages();
+      document.getElementById('notebookModal').style.display = 'flex';
+    }
+
+    function closeNotebookModal() {
+      document.getElementById('notebookModal').style.display = 'none';
+    }
+
+    function filterNotebook(filterKey, btnEl) {
+      currentNotebookFilter = filterKey;
+      document.querySelectorAll('.nb-tab').forEach(t => t.classList.remove('active'));
+      if (btnEl) btnEl.classList.add('active');
+      renderNotebookPages();
+    }
+
+    function saveCountryNote(countryId, textVal) {
+      travelNotes[countryId] = textVal;
+      const savedData = JSON.parse(localStorage.getItem('typingGameData') || '{}');
+      savedData.travelNotes = travelNotes;
+      localStorage.setItem('typingGameData', JSON.stringify(savedData));
+    }
+
+    function renderNotebookPages() {
+      const container = document.getElementById('notebookPages');
+      const stageLabels = {
+        stage1: '第 1 關（備料初階）',
+        stage2: '第 2 關（烹飪進階）',
+        stage3: '第 3 關（上菜出餐）',
+        speed: '🔥 美食暴走 Fever',
+        perfect: '💣 廚房炸彈菜單'
+      };
+
+      let practicedCountriesTotal = 0;
+      worldData.forEach(c => {
+        const p = userProgress[c.id] || {};
+        if (p.stage1 || p.stage2 || p.stage3 || p.speed || p.perfect) practicedCountriesTotal++;
+      });
+      document.getElementById('notebookSummaryText').innerText = `已留下足跡：${practicedCountriesTotal} / ${worldData.length} 國`;
+
+      const filtered = worldData.filter(c => {
+        const p = userProgress[c.id] || {};
+        const hasAny = p.stage1 || p.stage2 || p.stage3 || p.speed || p.perfect;
+        if (currentNotebookFilter === 'practiced') return hasAny;
+        if (currentNotebookFilter === 'all') return true;
+        return c.continent === currentNotebookFilter;
+      });
+
+      if (filtered.length === 0) {
+        container.innerHTML = `<div style="text-align:center; padding:40px 10px; color:#6D4C41; font-weight:bold;">📖 目前這個分類還沒有練習紀錄喔！快去地圖上挑戰關卡，系統會自動幫你抄錄練習過的英文題目！</div>`;
+        return;
+      }
+
+      container.innerHTML = filtered.map(c => {
+        const p = userProgress[c.id] || {};
+        const qSet = countryQuestions[c.id] || countryQuestions['taiwan'];
+        const completedModes = ['stage1', 'stage2', 'stage3', 'speed', 'perfect'].filter(m => p[m]);
+        const hasPracticed = completedModes.length > 0;
+        const userMemo = travelNotes[c.id] || '';
+
+        let promptsHtml = '';
+        if (hasPracticed) {
+          promptsHtml = completedModes.map(m => {
+            const qItem = (qSet[m] && qSet[m][0]) ? qSet[m][0] : { target: '', zh: '' };
+            return `
+              <div class="nb-prompt-row">
+                <div style="display:flex; justify-content:space-between; color:#475569; font-weight:bold;">
+                  <span>✅ ${stageLabels[m]}</span>
+                  <span>${qItem.zh}</span>
+                </div>
+                <div class="nb-prompt-code">${qItem.target}</div>
+              </div>
+            `;
+          }).join('');
+        } else {
+          promptsHtml = `<div style="font-size:11px; color:#8D6E63; margin-top:4px;">🔒 尚未造訪此國家，通關後將自動收錄練習題目！</div>`;
+        }
+
+        return `
+          <div class="nb-entry-card ${hasPracticed ? '' : 'unvisited'}">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div style="font-weight:bold; font-size:13px; color:#3E2723;">
+                ${c.badgeIcon} ${c.name} <span style="font-size:10px; color:#795548;">(${continentChineseNames[c.continent]})</span>
+              </div>
+              <span style="font-size:10px; font-weight:bold; padding:2px 8px; border-radius:10px; background:${hasPracticed ? '#DCFCE7' : '#EFEBE9'}; color:${hasPracticed ? '#166534' : '#795548'};">
+                ${hasPracticed ? `已收錄 ${completedModes.length} 組題目` : '未探索'}
+              </span>
+            </div>
+            ${promptsHtml}
+            <input class="nb-memo-input" type="text" placeholder="✍️ 點此寫下你的【${c.name}】練字手札或易錯按鍵筆記..." value="${userMemo.replace(/"/g, '&quot;')}" onchange="saveCountryNote('${c.id}', this.value)" />
+          </div>
+        `;
+      }).join('');
+    }
+
+    /* ================= 👑 全體飛行員排行榜邏輯 ================= */
+    function openLeaderboardModal() {
+      document.getElementById('leaderboardModal').style.display = 'flex';
+      fetchAndRenderLeaderboard();
+    }
+
+    function closeLeaderboardModal() {
+      document.getElementById('leaderboardModal').style.display = 'none';
+    }
+
+    function switchLeaderboardTab(tabKey) {
+      currentLeaderboardTab = tabKey;
+      document.getElementById('lbTabMiles').classList.toggle('active', tabKey === 'miles');
+      document.getElementById('lbTabWpm').classList.toggle('active', tabKey === 'wpm');
+      renderLeaderboardList();
+    }
+
+function fetchAndRenderLeaderboard() {
+      const statusEl = document.getElementById('lbSyncStatus');
+      statusEl.innerText = '🔄 正在從雲端試算表讀取真實玩家...';
+
+      const myName = currentUsername || '見習飛行員(未命名)';
+      const myCleared = worldData.filter(x => {
+        const p = userProgress[x.id] || {};
+        return p.stage1 && p.stage2 && p.stage3;
+      }).length;
+
+      // 1. 先載入本機真實遊玩過的帳號紀錄（無任何預設假人）
+      const playerMap = {};
+      const localPlayers = JSON.parse(localStorage.getItem('typingGameAllPlayers') || '{}');
+      Object.values(localPlayers).forEach(p => {
+        if (p && p.username) playerMap[p.username] = p;
+      });
+
+      // 寫入當前玩家最新真實數據
+      if (currentUsername) {
+        playerMap[myName] = {
+          username: myName,
+          totalMilesKm: totalMilesKm,
+          maxWpmRecord: maxWpmRecord,
+          clearedCountries: myCleared,
+          charId: selectedCharId ?? 0,
+          isMe: true
+        };
+      }
+
+      cachedLeaderboardPlayers = Object.values(playerMap);
+      renderLeaderboardList();
+
+      // 2. 向您的 Google Apps Script 請求試算表內所有真實玩家資料
+      fetch(`${GAS_URL}?action=leaderboard`)
+        .then(res => res.json())
+        .then(resData => {
+          if (resData && Array.isArray(resData.players)) {
+            const cloudMap = {};
+            resData.players.forEach(cp => {
+              if (!cp.username) return;
+              const isMe = (cp.username === myName);
+              cloudMap[cp.username] = {
+                username: cp.username,
+                totalMilesKm: isMe ? Math.max(totalMilesKm, Number(cp.totalMilesKm) || 0) : (Number(cp.totalMilesKm) || 0),
+                maxWpmRecord: isMe ? Math.max(maxWpmRecord, Number(cp.maxWpmRecord) || 0) : (Number(cp.maxWpmRecord) || 0),
+                clearedCountries: isMe ? Math.max(myCleared, Number(cp.clearedCountries) || 0) : (Number(cp.clearedCountries) || 0),
+                charId: Number(cp.charId) || 0,
+                isMe: isMe
+              };
+            });
+            if (currentUsername && !cloudMap[myName]) {
+              cloudMap[myName] = playerMap[myName];
+            }
+            cachedLeaderboardPlayers = Object.values(cloudMap);
+            renderLeaderboardList();
+            statusEl.innerText = `🟢 已同步雲端真實玩家（共 ${cachedLeaderboardPlayers.length} 人）`;
+          } else {
+            statusEl.innerText = '⚠️ GAS 尚未回傳 players 陣列，請依教學更新 GAS';
+          }
+        })
+        .catch(() => {
+          statusEl.innerText = '🔴 雲端連線失敗（目前顯示本機真實帳號）';
+        });
+    }
+
+    function renderLeaderboardList() {
+      const listEl = document.getElementById('leaderboardList');
+      const myName = currentUsername || '見習飛行員(未命名)';
+
+      const sorted = [...cachedLeaderboardPlayers].sort((a, b) => {
+        if (currentLeaderboardTab === 'miles') {
+          return (b.totalMilesKm - a.totalMilesKm) || (b.maxWpmRecord - a.maxWpmRecord);
+        } else {
+          return (b.maxWpmRecord - a.maxWpmRecord) || (b.totalMilesKm - a.totalMilesKm);
+        }
+      });
+if (sorted.length === 0) {
+        listEl.innerHTML = `<div style="text-align:center; padding:40px 10px; color:#94A3B8;">目前尚無真實玩家紀錄，快輸入帳號開始第一趟飛行吧！</div>`;
+        return;
+      }
+      let myRank = -1;
+      listEl.innerHTML = sorted.map((p, idx) => {
+        const rank = idx + 1;
+        const isMe = p.isMe || (p.username === myName);
+        if (isMe) myRank = rank;
+
+        const charObj = charactersList[p.charId] || charactersList[0];
+        let rankClass = '';
+        let rankDisplay = rank;
+        if (rank === 1) { rankClass = 'lb-rank-1'; rankDisplay = '🥇'; }
+        else if (rank === 2) { rankClass = 'lb-rank-2'; rankDisplay = '🥈'; }
+        else if (rank === 3) { rankClass = 'lb-rank-3'; rankDisplay = '🥉'; }
+
+        const mainMetric = (currentLeaderboardTab === 'miles')
+          ? `<span style="color:var(--gold); font-size:14px; font-weight:900;">${Number(p.totalMilesKm).toLocaleString()} km</span>`
+          : `<span style="color:#38BDF8; font-size:14px; font-weight:900;">${p.maxWpmRecord} WPM</span>`;
+
+        const subMetric = (currentLeaderboardTab === 'miles')
+          ? `最高航速 ${p.maxWpmRecord} WPM`
+          : `飛行里程 ${Number(p.totalMilesKm).toLocaleString()} km`;
+
+        return `
+          <div class="lb-row ${isMe ? 'is-me' : ''}">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <div class="lb-rank-badge ${rankClass}">${rankDisplay}</div>
+              <img src="${charObj.file}" alt="avatar" style="width:34px; height:34px; border-radius:50%; border:1.5px solid var(--gold); object-fit:cover; background:#fff;" />
+              <div>
+                <div style="font-weight:bold; color:#fff;">
+                  ${p.username} ${isMe ? '<span style="background:var(--gold); color:var(--navy); font-size:10px; padding:1px 6px; border-radius:8px; margin-left:4px;">👤 你</span>' : ''}
+                </div>
+                <div style="font-size:10px; color:#94A3B8;">🛂 已開航 ${p.clearedCountries || 0} / 50 國 ｜ ${subMetric}</div>
+              </div>
+            </div>
+            <div style="text-align:right;">
+              ${mainMetric}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('lbMyRankText').innerText = myRank > 0
+        ? `🏅 你的目前排名：第 ${myRank} 名 / 共 ${sorted.length} 位飛行員`
+        : '🏅 你的目前排名：未上榜';
+    }
+    window.onload = () => {
+      initMap();
+      initCharacterSelection();
+      loadGame();
+      renderCountryPins();
+      updateHeaderStats();
+    };
+    window.onresize = () => {
+      initMap();
+      focusContinent(currentContinentKey || 'world');
+    };
+  </script>
+</body>
+</html>
